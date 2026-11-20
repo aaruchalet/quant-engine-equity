@@ -13,23 +13,23 @@
 <section id="sensex" aria-label="SENSEX trading dashboard" hidden></section>
 <section id="equity" hidden>
 <small>INDIAN STOCK RESEARCH</small><h1>Equity research</h1>
-<p>Research live-source equities from an official exchange feed, investigate a particular symbol and run an independent historical equity simulation. No AI service is required.</p>
-<div class="notice">Public NSE website endpoints may restrict automated calls. Prices are presented with timestamps; an unavailable data source results in an error, never an invented buy signal. Screening NIFTY SMALLCAP 250 is not the full AMFI small-cap universe.</div>
+<p>Discover Indian small caps from AMFI and official NSE/BSE end-of-day archives, investigate a particular listed symbol and run an independent historical equity simulation. No AI service is required.</p>
+<div class="notice">Market research uses dated official public reports, not guaranteed live quotes. Downloads may be unavailable or restricted. Every result includes dates and limitations; an unavailable source never becomes a fabricated buy signal.</div>
 <article class="panel">
-<div class="heading"><div><small>OFFICIAL NSE MARKET FEED</small><h2>Find an equity</h2></div><button type="button" id="equityRefresh">Refresh selected equity</button></div>
-<form id="equityLookup" class="lookup"><label for="equityQuery">Search company name or NSE symbol</label><div class="inline-controls"><input name="q" id="equityQuery" placeholder="Search e.g. TATA, SBIN, ... " minlength="2" autocomplete="off" required><button type="submit">Search equities</button></div></form>
+<div class="heading"><div><small>NSE / BSE CLOSING-PRICE ARCHIVES</small><h2>Find an equity</h2></div><button type="button" id="equityRefresh">Refresh latest close</button></div>
+<form id="equityLookup" class="lookup"><label for="equityQuery">Search NSE/BSE ticker (company-name lookup subject to source metadata)</label><div class="inline-controls"><input name="q" id="equityQuery" placeholder="Search e.g. TATA, SBIN, ... " minlength="2" autocomplete="off" required><button type="submit">Find listed equities</button></div></form>
 <div id="equityMatches" aria-live="polite"></div>
-<div id="equityDetail" aria-live="polite"><p class="muted">Search for a company and choose its NSE ticker to request a fresh quote.</p></div>
+<div id="equityDetail" aria-live="polite"><p class="muted">Enter an NSE/BSE ticker to retrieve the latest available end-of-day exchange close (not an intraday quote).</p></div>
 </article>
 <article class="panel">
-<div class="heading"><div><small>PRELIMINARY DISCOVERY</small><h2>Screen all eligible index constituents</h2></div><button type="button" id="screenAll">Refresh web screen</button></div>
+<div class="heading"><div><small>OFFICIAL AMFI / NSE / BSE DISCOVERY</small><h2>Discover AMFI small-cap companies</h2></div><button type="button" id="screenAll">Refresh source reports</button></div>
 <form id="screen" class="fields">
 <label>Min price (₹)<input name="minPrice" type="number" min=".01" step=".01" value="10" required></label>
 <label>Max price, exclusive (₹)<input name="maxPrice" type="number" min=".02" step=".01" value="100" required></label>
 <label>Holding min (sessions)<input name="minSessions" type="number" min="1" value="20" required></label>
 <label>Holding max (sessions)<input name="maxSessions" type="number" min="1" value="45" required></label>
 <label>Capital, optional (₹)<input name="capital" type="number" min=".01" step=".01" placeholder="Optional"></label>
-<div class="field-action"><button type="submit">Screen using fresh web data</button></div>
+<div class="field-action"><button type="submit">Discover from official reports</button></div>
 </form>
 <div id="screenResult" aria-live="polite"></div>
 </article>
