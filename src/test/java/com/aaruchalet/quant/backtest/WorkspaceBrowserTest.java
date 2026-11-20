@@ -35,7 +35,7 @@ class WorkspaceBrowserTest {
             } finally { process.destroyForcibly(); }
             String html = Files.readString(dom);
             assertTrue(html.contains("href=\"#"+tab.getKey()+"\" aria-current=\"page\""),tab.getKey());
-            assertTrue(Pattern.compile("<section id=\""+tab.getKey()+"\">.*?<h1>"+tab.getValue()+"</h1>",Pattern.DOTALL)
+            assertTrue(Pattern.compile("<section id=\""+tab.getKey()+"\"[^>]*>.*?<h1>"+tab.getValue()+"</h1>",Pattern.DOTALL)
                     .matcher(html).find(),tab.getKey());
             assertFalse(html.contains("href=\"#trading\""),"Standalone Trading tab must not exist");
             if (tab.getKey().equals("equity")) {
