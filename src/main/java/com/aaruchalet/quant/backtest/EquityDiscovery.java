@@ -12,6 +12,8 @@ import org.apache.commons.csv.CSVFormat;
 import org.apache.poi.ss.usermodel.*;
 import org.jsoup.Jsoup;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/equity")
@@ -99,6 +101,104 @@ class EquityDiscovery {
         String outcome = dates.isEmpty() ? "DATA UNAVAILABLE" : limitations.size() > 1 ? "PARTIAL DISCOVERY" : "DISCOVERY COMPLETE";
         return new Scan(outcome,ZonedDateTime.now(IST).toOffsetDateTime(),
                 workbook,smallCaps.size(),mapped.size(),ranked.size(),passes,dates,sources,limitations,ranked);
+    }
+
+
+    /**
+     * A fresh, read-only EOD lookup from the official downloadable exchange archives.
+     * Not a live quote and never an order recommendation.
+     */
+    @GetMapping("/lookup")
+    synchronized Map<String,Object> lookup(@RequestParam String q) {
+        String query=q==null?"":q.strip().toUpperCase(Locale.ROOT);
+        if(!query.matches("[A-Z0-9&_. -]{2,50}"))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Enter a company/ticker search of 2–50 characters");
+        var found=new LinkedHashMap<String,Map<String,Object>>();
+        var errors=new ArrayList<String>();
+        for(String exchange:List.of("NSE","BSE")) {
+            try {
+                var archive=latestArchive(exchange);
+                for(var row:archive.quotes().values()) {
+                    if(!row.symbol().toUpperCase(Locale.ROOT).contains(query.replace(" ",""))) continue;
+                    var match=new LinkedHashMap<String,Object>();
+                    match.put("symbol",row.symbol());
+                    match.put("company",row.symbol());
+                    match.put("exchange",exchange);
+                    match.put("asOf",archive.date().toString());
+                    match.put("isin",row.isin());
+                    found.putIfAbsent(row.isin(),match);
+                    if(found.size()>=15) break;
+                }
+            } catch (IOException | InterruptedException | RuntimeException ex) {
+                if(ex instanceof InterruptedException) Thread.currentThread().interrupt();
+                errors.add(exchange+" EOD archive unavailable");
+            }
+        }
+        if(found.isEmpty() && errors.size()==2)
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Official exchange closing-price archives are unavailable.");
+        return Map.of("query",query,"fetchedAt",Instant.now().toString(),"dataKind","EOD_NOT_LIVE",
+                "sources",List.of("https://nsearchives.nseindia.com","https://www.bseindia.com"),
+                "limitations",errors,"suggestions",new ArrayList<>(found.values()));
+    }
+
+    @GetMapping("/eod/{symbol}")
+    synchronized Map<String,Object> eod(@PathVariable String symbol) {
+        String requested=symbol==null?"":symbol.strip().toUpperCase(Locale.ROOT);
+        if(!requested.matches("[A-Z0-9&_.-]{1,25}"))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid NSE/BSE equity ticker");
+        Quote matched=null;
+        Archive source=null;
+        var errors=new ArrayList<String>();
+        for(String exchange:List.of("NSE","BSE")) {
+            try {
+                var archive=latestArchive(exchange);
+                for (var candidate:archive.quotes().values()) {
+                    if(!candidate.symbol().equalsIgnoreCase(requested)) continue;
+                    if(source==null || archive.date().isAfter(source.date())
+                            || archive.date().equals(source.date()) && candidate.turnover()>matched.turnover()) {
+                        source=archive;matched=candidate;
+                    }
+                }
+            } catch (IOException | InterruptedException | RuntimeException ex) {
+                if(ex instanceof InterruptedException) Thread.currentThread().interrupt();
+                errors.add(exchange+" EOD archive unavailable");
+            }
+        }
+        if(matched==null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                errors.size()==2?"Official exchange archives unavailable":"Symbol not present in available recent EOD reports.");
+        var result=new LinkedHashMap<String,Object>();
+        result.put("symbol",matched.symbol());
+        result.put("company",matched.symbol());
+        result.put("exchange",matched.exchange());
+        result.put("isin",matched.isin());
+        result.put("price",matched.close());
+        result.put("tradedValueInr",matched.turnover());
+        result.put("fetchedAt",Instant.now().toString());
+        result.put("marketTimestamp",source.date().toString());
+        result.put("dataKind","OFFICIAL_CLOSING_PRICE_NOT_LIVE");
+        result.put("source",source.source().toString());
+        result.put("sourceGaps",errors);
+        result.put("amfiClassification","UNVERIFIED");
+        result.put("decision","INSUFFICIENT_DATA");
+        result.put("liveVerified",false);
+        return result;
+    }
+
+    private Archive latestArchive(String exchange) throws IOException, InterruptedException {
+        var today=LocalDate.now(IST);
+        for(int i=0;i<12;i++) {
+            LocalDate date=today.minusDays(i);
+            String stamp=DateTimeFormatter.BASIC_ISO_DATE.format(date);
+            String file="BhavCopy_"+exchange+"_CM_0_0_0_"+stamp+"_F_0000";
+            URI uri=URI.create(exchange.equals("NSE")
+                    ? "https://nsearchives.nseindia.com/content/cm/"+file+".csv.zip"
+                    : "https://www.bseindia.com/download/BhavCopy/Equity/"+file+".CSV");
+            byte[] data=download(uri);
+            if(data==null) continue;
+            return new Archive(date,uri,readQuotes(data,exchange,date,exchange.equals("NSE")));
+        }
+        throw new IOException("No recent official EOD archive available");
     }
 
     private void readSessions(String exchange, LocalDate start, List<Archive> days, Instant deadline)

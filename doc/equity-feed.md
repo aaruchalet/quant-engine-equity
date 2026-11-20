@@ -36,3 +36,42 @@ Capital and availableCash are optional runtime inputs. Without capital, position
 Start the Spring Boot application, open the Equity tab and press **Scan equities**. The server loads the AMFI classification workbook and official NSE and BSE end-of-day files. It joins by ISIN, applies the configured price band, and calculates average traded value from 20 exchange sessions. A dual listing appears once. The scan selects the newer closing date and then the listing with higher verified turnover. The JSON report includes closing dates, source links, coverage counts and any gaps.
 
 The application needs outbound HTTPS access to AMFI and the two exchanges. It uses no account or API key. Public archives cover basic discovery. The full entry, risk and score calculation uses the verified research evidence described above. See `POST /api/equity/discover` for the same discovery output as JSON. This endpoint and the Equity tab perform discovery without the optional Codex research script.
+
+
+## Individual equity lookup and dashboard screen (20 November 2026)
+
+The three-tab dashboard now places all equity discovery and historical cash-share
+backtesting under **Equity**. NIFTY/SENSEX show PAPER/LIVE positions and strategy
+diagnostics only.
+
+- **Search specific ticker:** `GET /api/equity/lookup?q=SBIN` uses the latest
+  available downloadable NSE/BSE end-of-day archives to find exchange ticker
+  matches. `GET /api/equity/eod/SBIN` returns the verified closing price, ISIN,
+  exchange, trade value, as-of exchange session, and source link. This is not
+  an intraday or live quote. Most archive formats do not supply company-name
+  aliases, so search is primarily ticker-based.
+- **Scan all small caps:** `POST /api/equity/discover` uses the existing AMFI
+  classification workbook and official exchange end-of-day reports, mapping by
+  ISIN. It records the universe size, mapped securities, filtered prices, and
+  20-session liquidity qualification where complete archives exist. Fetch
+  time, source URLs, each market's data-as-of date, and partial-coverage warnings
+  are part of the result. The dashboard does not falsely claim BUY eligibility.
+- **Full screening rubric:** `POST /api/equity/screen` still requires 250
+  adjusted daily bars, sourced financial/governance tests, valid price and
+  surveillance checks, realistic costs and net R:R. Public EOD archives alone
+  cannot meet those thresholds.
+- **Historical backtest:** the Equity UI can upload a 5-minute CSV to
+  `POST /api/equity/backtest` and display V1-style cash-equity simulation metrics.
+  This endpoint has no broker-order path.
+
+**Licensing:** The optional NSE website API adapter remains disabled by default
+(`TRADING_EQUITY_NSE_WEBSITE_ACCESS_AUTHORIZED=false`) because website terms
+restrict automated collection. The official downloadable report workflow is
+separate and must still be used consistently with the relevant publisher's terms.
+No CAPTCHA/session restriction bypass, AI service, or third-party AI screening
+is required to use the dashboard.
+
+**Check priority:** critical liquidity/depth/exits and
+governance/surveillance; high earnings/cash/debt, trend/volume/support, valuation,
+near-term catalysts, stop and net reward:risk; medium promoter and FII/DII trends.
+Missing critical evidence is `UNVERIFIED` or `INSUFFICIENT DATA`.
