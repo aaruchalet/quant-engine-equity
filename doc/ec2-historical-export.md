@@ -70,7 +70,7 @@ EC2_SSH=ubuntu@13.202.233.29 EC2_SSH_KEY="$HOME/.ssh/quant-test-ec2" ./scripts/p
 
 **Before opening SSH:** Use AWS Console **Connect → Session Manager** (if your instance is configured for SSM) or **EC2 Instance Connect** to run `curl -4 -fsS https://api.ipify.org` on the EC2 host. If the result is not the registered Angel One source IP, the downloader will refuse to run; arrange legitimate broker-approved egress instead of changing the request header. Session Manager does not require inbound SSH when correctly configured. If you must permit direct SSH, temporarily allow **only your current Mac public IPv4 /32** on TCP 22, use an authorized SSH key or Instance Connect, and remove the rule afterward.
 
-Default export: `data/niftybees-5min-2026-05-20-to-2026-11-19.csv` on the Mac. The remote export includes **30 extra calendar days for indicator warmup**, and only **complete 09:15–14:55 IST 5-minute sessions** are included. No market data is committed to GitHub.
+Default export: `data/niftybees-5min-2026-05-20-to-2026-11-19.csv` on the Mac. The exporter requests candles only through **14:55 IST** and also tolerates correctly aligned extra regular-session candles at **15:00–15:25** if Angel One returns them; unexpected timestamps and invalid in-window OHLCV still fail validation. The remote export includes **30 extra calendar days for indicator warmup**, and only **complete 09:15–14:55 IST 5-minute sessions** are included. No market data is committed to GitHub.
 
 The script performs the following steps:
 
