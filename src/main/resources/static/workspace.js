@@ -95,14 +95,14 @@ async function refresh() {
 byId('refresh').onclick = refresh;
 bindRun(byId('screen'),byId('screenResult'),async snapshot => {
   const config = {};
-  for (const [key,value] of new FormData(byId('screen'))) if (key !== 'file') config[key] = Number(value);
+  for (const [key,value] of new FormData(byId('screen'))) if (key !== 'file' && value !== '') config[key] = Number(value);
   const r = await api(snapshot ? '/api/equity/screen' : '/api/equity/screen/latest',snapshot ? {config,snapshot} : config);
   const evidence = node('div');
   for (const stock of r.results) {
     const detail = node('details'); detail.append(node('summary',stock.symbol+' · '+stock.decision),node('pre',JSON.stringify(stock,null,2))); evidence.append(detail);
   }
   return [metrics([['Result',r.outcome],['Qualified',r.shortlist.length],['Screened',r.results.length],['Market regime',r.regime]]),node('p','Snapshot as of '+r.as_of),
-    table('Ranked setups',['Symbol','Price','Score','Entry','Stop','Targets','Net R:R','Sessions','Units','Decision'],r.shortlist.map(s=>[s.symbol,money(s.price),s.score,money(s.entry),money(s.stop_loss),s.targets.map(money).join(' / '),s.net_rr.toFixed(2),s.holding_period,s.position_size,s.decision]),'No candidates qualify for this snapshot and configuration.'),node('h2','Decisions and evidence'),evidence,download(r,'equity-screen.json')];
+    ...['Confirmed entries','Pending triggers'].map((title,index) => table(title,['Symbol','Price','Score','Entry','Stop','Targets','Net R:R T1 / T2','Sessions','Units','Decision'],r.shortlist.filter(s => (s.decision === "BUY_NOW") === (index === 0)).map(s=>[s.symbol,money(s.price),s.score,money(s.entry),money(s.stop_loss),s.targets.map(money).join(' / '),[s.net_rr,s.net_rr_t2].map(x=>x.toFixed(2)).join(" / "),s.holding_period,s.position_size ?? "—",s.decision]),'No candidates qualify for this snapshot and configuration.')),node('h2','Decisions and evidence'),evidence,download(r,'equity-screen.json')];
 });
 function navigate() {
   const current = tabs.find(a=>a.hash===location.hash) || tabs[0];
