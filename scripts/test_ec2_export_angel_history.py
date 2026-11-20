@@ -118,6 +118,61 @@ class HistoryExporterTests(unittest.TestCase):
         with self.assertRaisesRegex(mod.DownloadError, 'does not cover both ends'):
             mod.summarize_complete(by_time,dt.date(2026,5,20),dt.date(2026,8,20))
 
+    def test_resume_after_http_403_without_refetching_completed_windows(self):
+        start = dt.date(2026, 5, 20)
+        through = dt.date(2026, 5, 31)
+        first_calls = []
+        second_calls = []
+        def rows_for_window(window_start, window_end):
+            rows=[]
+            day=window_start
+            while day<=window_end:
+                if day.weekday()<5:
+                    rows.extend(fake_day(day))
+                day+=dt.timedelta(days=1)
+            return rows
+        def first_fetch(_token, _headers, window_start, window_end):
+            first_calls.append(window_start)
+            if window_start >= dt.date(2026,5,18):
+                raise mod.DownloadError('Broker HTTP 403 Forbidden')
+            return rows_for_window(window_start, window_end)
+        with tempfile.TemporaryDirectory() as directory:
+            cache=Path(directory)
+            with self.assertRaisesRegex(mod.DownloadError, 'Window 2026-05-18 to 2026-05-31'):
+                mod.collect_history(start, through, '123', {}, pause=0,
+                                    fetcher=first_fetch, cache_dir=cache)
+            self.assertEqual(len(first_calls), 3)
+            self.assertEqual(len(list(cache.glob('*.json'))), 2)
+            def second_fetch(_token, _headers, window_start, window_end):
+                second_calls.append(window_start)
+                return rows_for_window(window_start, window_end)
+            out=mod.collect_history(start, through, '123', {}, pause=0,
+                                    fetcher=second_fetch, cache_dir=cache)
+            self.assertEqual(second_calls, [dt.date(2026,5,18)])
+            self.assertIn(dt.datetime(2026,5,20,9,15), out)
+            self.assertEqual(len(list(cache.glob('*.json'))), 3)
+
+    def test_corrupt_window_cache_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache=Path(directory)
+            path=mod.checkpoint_path(cache, '123', dt.date(2026,4,20), dt.date(2026,5,3))
+            path.write_text('{"schema":1,"token":"other","start":"2026-04-20"}')
+            with self.assertRaisesRegex(mod.DownloadError, 'checkpoint'):
+                mod.collect_history(dt.date(2026,5,20), dt.date(2026,5,20),
+                                    '123', {}, pause=0, cache_dir=cache)
+
+    def test_rate_limit_403_uses_safe_classification_not_raw_body(self):
+        import io
+        import urllib.error
+        message=b'Access denied because of exceeding access rate - sensitive-debug-string'
+        error=urllib.error.HTTPError('https://apiconnect.angelone.in',403,
+                                   'Forbidden',{},io.BytesIO(message))
+        with mock.patch.object(mod.urllib.request,'urlopen',side_effect=error):
+            with self.assertRaises(mod.DownloadError) as caught:
+                mod.fetch_batch('123', {}, dt.date(2026,5,20), dt.date(2026,5,20))
+        self.assertIn('access-rate restriction',str(caught.exception))
+        self.assertNotIn('sensitive-debug-string',str(caught.exception))
+
     def test_runtime_env_only_whitelisted_no_execute(self):
         with tempfile.TemporaryDirectory() as td:
             file=Path(td)/'runtime.env'
