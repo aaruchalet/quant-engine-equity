@@ -163,25 +163,6 @@
     section.append(header,out);
   }
 
-  const sources=[
-    ['NSE India','https://www.nseindia.com/','Official quotes, volume, exchange notices and surveillance'],
-    ['BSE India','https://www.bseindia.com/','Corporate results, filings and actions'],
-    ['Screener.in','https://www.screener.in/','Financial statements, ROE, ROCE and debt'],
-    ['Tickertape','https://www.tickertape.in/screener/equity','Valuations and peer comparison'],
-    ['Trendlyne','https://trendlyne.com/','Ownership, pledges and valuation'],
-    ['TradingView','https://in.tradingview.com/','EMA, RSI, volume and chart structure'],
-    ['Chartink','https://chartink.com/','Technical and breakout scans'],
-    ['Moneycontrol','https://www.moneycontrol.com/','Announcements, news and market context'],
-    ['SEBI','https://www.sebi.gov.in/','Regulatory and investor protection notices']
-  ];
-  const listing=node('div',null,'source-links');
-  for (const [name,url,purpose] of sources) {
-    const a=node('a',name);a.href=url;a.target='_blank';a.rel='noopener noreferrer';
-    a.title=purpose;listing.append(a);
-  }
-  byId('researchSources').append(node('h3','Research sources (external verification)'),listing,
-    paragraph('The automated feed currently requests official NSE data only. These other websites are reference links, not automatically scraped or treated as verified.'));
-
   const quoteState={symbol:null};
 
   const equityPaneNames=['Discover','Research','Backtest'];
@@ -197,99 +178,60 @@
   for(const name of equityPaneNames){
     byId('equity'+name+'Tab').onclick=()=>selectEquityPane(name);
   }
-  const researchState={candidate:null,inFlight:false};
-  const researchMoney=value=>value==null?'—':rupees(value);
-  const researchNumber=value=>value==null?'—':numeric(value);
-  function researchLinks(symbol) {
-    const links=externalSymbolLinks(symbol);
-    const extra=[
-      ['BSE announcements','https://www.bseindia.com/corporates/ann.html'],
-      ['SEBI notices','https://www.sebi.gov.in/'],
-      ['AMFI classifications','https://www.amfiindia.com/otherdata/categorisation-of-stocks']
-    ];
-    for(const [name,url] of extra){
-      const a=node('a',name);a.href=url;a.target='_blank';a.rel='noopener noreferrer';
-      links.append(a);
-    }
-    return links;
+  const researchContext=byId('researchContext');
+  const heldContext=byId('heldContext');
+  const researchState={candidate:null,request:0};
+  function positionFields() {
+    heldContext.hidden=heldContext.disabled=researchContext.elements.positionStatus.value!=='HELD';
   }
-  function renderResearch(data,candidate) {
-    const out=byId('equityResearchDetail');
-    const heading=node('div',null,'research-heading');
-    heading.append(node('h3',asText(candidate.company||data.symbol)+' · '+data.symbol),
-      badge(data.status==='PRELIMINARY_RESEARCH'?'PRELIMINARY DATA':'PARTIAL DATA'));
-    const meta=paragraph('Verified exchange '+data.exchange+' · ISIN '+data.isin+
-      ' · Latest session '+asText(data.asOf)+' · Retrieved '+asText(data.retrievedAt)+
-      ' · '+data.observedSessions+'/'+data.requiredSessions+' sessions.');
-    const summary=metricTiles([
-      ['Official EOD close',researchMoney(data.latestClose)],
-      ['Previous close',researchMoney(data.previousClose)],
-      ['Daily change',data.priceChangePercent==null?'—':researchNumber(data.priceChangePercent)+'%'],
-      ['20-session avg turnover',data.averageTradedValueCr==null?'UNVERIFIED':'₹'+researchNumber(data.averageTradedValueCr)+' cr'],
-      ['Indicative EMA 9',researchMoney(data.ema9Indicative)],
-      ['Indicative EMA 20',researchMoney(data.ema20Indicative)],
-      ['Indicative RSI 14',researchNumber(data.rsi14Indicative)],
-      ['Observed-period range',researchMoney(data.periodLow)+' – '+researchMoney(data.periodHigh)]
-    ]);
-    const limitations=node('div',null,'research-coverage');
-    limitations.append(node('h3','Data quality and limitations'));
-    const limitationList=node('ul');
-    for(const warning of data.limitations||[])limitationList.append(node('li',warning));
-    limitations.append(limitationList);
-    const checks=node('div',null,'research-missing');
-    checks.append(node('h3','Verification still required before a BUY decision'));
-    const checklist=node('ul');
-    for(const check of data.missingChecks||[])checklist.append(node('li',check));
-    checks.append(checklist);
-    const prices=Array.isArray(data.dailyPrices)?data.dailyPrices.slice().reverse():[];
-    const history=dataTable('Official dated closing-price history',
-      ['Session','Close','Traded value (₹cr)','Archive source'],
-      prices.map(p=>[p.session,researchMoney(p.close),researchNumber(p.tradedValueCr),'Official archive']),
-      'No verified session history available.');
-    const cells=history.querySelectorAll('tbody tr');
-    cells.forEach((row,i)=>{
-      const p=prices[i],cell=row.cells[3];
-      if(!p||!cell)return;
-      if(/^https:\/\/(nsearchives\.nseindia\.com|www\.bseindia\.com)\//.test(p.source)){
-        const a=node('a','View exchange report');
-        a.href=p.source;a.target='_blank';a.rel='noopener noreferrer';
-        cell.replaceChildren(a);
-      }
-    });
-    out.replaceChildren(heading,meta,summary,
-      paragraph('Preliminary exchange-history research only. No verified buy signal, stop, target, probability of profit or full fundamental score can be inferred from these archives.','notice'),
-      limitations,checks,researchLinks(data.symbol),history);
-  }
+  researchContext.elements.positionStatus.onchange=()=>{
+    positionFields();
+    if(researchState.candidate) researchCandidate(researchState.candidate);
+  };
+  researchContext.onsubmit=event=>{
+    event.preventDefault();
+    if(researchState.candidate) researchCandidate(researchState.candidate);
+  };
+  researchContext.oninput=event=>{
+    if(event.target.name==='positionStatus' || !researchState.candidate)return;
+    ++researchState.request;
+    byId('researchRefresh').disabled=false;
+    byId('equityResearchDetail').replaceChildren(paragraph('Refresh research to evaluate the edited position.'));
+  };
   async function researchCandidate(candidate) {
-    if(!candidate || !/^INE[A-Z0-9]{9}$/.test(candidate.isin||'')
-        || !['NSE','BSE'].includes(candidate.exchange)) {
-      selectEquityPane('Research');
-      byId('equityResearchDetail').replaceChildren(paragraph(
-        'A verified ISIN and NSE/BSE listing are required. Select a candidate from Discover.','error'));
-      return;
+    const request=++researchState.request;
+    const out=byId('equityResearchDetail'),button=byId('researchRefresh');
+    selectEquityPane('Research');
+    if (!candidate || !/^INE[A-Z0-9]{9}$/.test(candidate.isin||'') || !['NSE','BSE'].includes(candidate.exchange)) {
+      researchState.candidate=null;button.disabled=true;
+      out.replaceChildren(paragraph('Select a verified NSE or BSE listing from Discover.','error'));return;
+    }
+    if(candidate.isin!==researchState.candidate?.isin || candidate.exchange!==researchState.candidate?.exchange) {
+      researchContext.reset();positionFields();
     }
     researchState.candidate=candidate;
-    selectEquityPane('Research');
-    const out=byId('equityResearchDetail'),button=byId('researchRefresh');
-    out.replaceChildren(paragraph('Researching '+asText(candidate.company||candidate.symbol)+
-      ' using dated official '+candidate.exchange+' exchange archives…'));
-    button.disabled=true;
-    researchState.inFlight=true;
-    try {
-      const data=await fetchJSON('/api/equity/research?isin='+encodeURIComponent(candidate.isin)+
-        '&exchange='+encodeURIComponent(candidate.exchange)+'&ts='+Date.now());
-      if(researchState.candidate!==candidate)return;
-      renderResearch(data,candidate);
-    } catch(error) {
-      out.replaceChildren(paragraph('Unable to complete exchange research: '+error.message,'error'),
-        researchLinks(candidate.symbol));
-    } finally {
-      researchState.inFlight=false;button.disabled=false;
+    if(!researchContext.reportValidity() || !screenForm.checkValidity()) {
+      out.replaceChildren(paragraph('Check the position inputs and the Discover price and holding settings.','error'));
+      button.disabled=false;return;
     }
+    const settings=Object.fromEntries(new FormData(screenForm));
+    const config=Object.fromEntries(Object.entries(settings).map(([k,v])=>[k,v===''?null:Number(v)]));
+    const fields=new FormData(researchContext);
+    const number=k=>fields.get(k)?Number(fields.get(k)):null;
+    const inputs={config,positionStatus:fields.get('positionStatus'),quantity:number('quantity'),
+      costBasis:number('costBasis'),heldStop:number('heldStop'),entryDate:fields.get('entryDate')||null};
+    out.replaceChildren(paragraph('Checking company filings, market history and trade conditions for '+asText(candidate.company||candidate.symbol)+'…'));
+    button.disabled=true;
+    try {
+      const report=await fetchJSON('/api/equity/research?isin='+encodeURIComponent(candidate.isin)+
+        '&exchange='+encodeURIComponent(candidate.exchange),{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(inputs)});
+      if(request===researchState.request) renderCompanyResearch(out,report,candidate,
+        {node,paragraph,metricTiles,dataTable,rupees,numeric,badge});
+    } catch(error) {
+      if(request===researchState.request)out.replaceChildren(paragraph('Company research unavailable. '+error.message,'error'));
+    } finally {if(request===researchState.request)button.disabled=false;}
   }
-  byId('researchRefresh').onclick=()=>{
-    if(researchState.candidate&&!researchState.inFlight)researchCandidate(researchState.candidate);
-  };
   function candidateTable(rows) {
     const wrap=node('div',null,'table-wrap candidates');
     wrap.append(node('h3','AMFI-classified small-cap candidates · select a row to research'));

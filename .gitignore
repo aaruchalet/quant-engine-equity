@@ -21,3 +21,6 @@ __pycache__/
 # Local option-chain snapshots and replay payloads
 data/options/
 data/runtime/
+
+# Local company research snapshots and position context
+data/equity/

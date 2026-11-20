@@ -2,7 +2,7 @@
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Quant Engine · Trading workspace</title><link rel="stylesheet" href="/workspace.css">
-<script src="/workspace.js" defer></script></head>
+<script src="/company-research.js" defer></script><script src="/workspace.js" defer></script></head>
 <body>
 <header><div class="bar"><strong class="brand"><span aria-hidden="true">∿</span> Quant Engine</strong>
 <span class="header-note">Index options · PAPER / LIVE · YAML-controlled execution</span></div></header>
@@ -42,21 +42,16 @@
 </div>
 <div id="equityResearchPane" class="equity-pane" role="tabpanel" aria-labelledby="equityResearchTab" hidden>
 <article class="panel">
-<div class="heading"><div><small>ON-DEMAND EXCHANGE RESEARCH</small><h2>Company research</h2></div><button type="button" id="researchRefresh" disabled>Refresh research</button></div>
-<p>Select any candidate in Discover to retrieve verified closing-price history, rolling liquidity and indicative technical indicators. Fundamental and surveillance evidence must still be verified before any buy decision.</p>
-<div id="equityResearchDetail" aria-live="polite"><p class="muted">Select a company from the discovery table or search for a listed symbol first.</p></div>
-</article>
-<article class="panel">
-<small>DATA QUALITY · BUY / NO BUY</small><h2>Research checks by priority</h2>
-<p>Price and a chart cannot justify a BUY. Critical missing checks remain <strong>UNVERIFIED</strong>, never assumed passed.</p>
-<div class="checklist"><div><strong>Critical</strong> Liquidity, market depth and ability to exit</div>
-<div><strong>Critical</strong> Corporate governance, exchange surveillance</div>
-<div><strong>High</strong> Earnings, operating cash flow and debt</div>
-<div><strong>High</strong> Price trend, volume, EMA/RSI and support levels</div>
-<div><strong>High</strong> Valuation versus peers; upcoming catalysts</div>
-<div><strong>High</strong> Stop loss, net reward-to-risk and time-based exit</div>
-<div><strong>Medium</strong> FII/DII changes and promoter ownership</div></div>
-<div id="researchSources"></div>
+<div class="heading"><h2>Company research</h2><button type="submit" form="researchContext" id="researchRefresh" disabled>Refresh research</button></div>
+<form id="researchContext" class="fields">
+<label>Position<select name="positionStatus"><option value="NONE">No position</option><option value="HELD">I hold this share</option><option value="UNKNOWN">Unknown</option></select></label>
+<fieldset id="heldContext" hidden disabled><legend>Existing position · optional details</legend>
+<label>Shares held<input name="quantity" type="number" min="1" step="1"></label>
+<label>Cost per share (₹)<input name="costBasis" type="number" min=".01" step=".01"></label>
+<label>Recorded stop (₹)<input name="heldStop" type="number" min=".01" step=".01"></label>
+<label>Entry date<input name="entryDate" type="date"></label>
+</fieldset></form>
+<div id="equityResearchDetail" aria-live="polite"><p class="muted">Select a company from Discover to see its analysis.</p></div>
 </article>
 </div>
 <div id="equityBacktestPane" class="equity-pane" role="tabpanel" aria-labelledby="equityBacktestTab" hidden>

@@ -26,13 +26,33 @@ class EquityDiscovery {
             .followRedirects(HttpClient.Redirect.NEVER).build();
     private final SequencedMap<URI,byte[]> archiveCache = new LinkedHashMap<>();
 
-    record Quote(String exchange, String symbol, String isin, double close, double turnover) {}
+    record Quote(String exchange, String symbol, String isin, double close, double turnover,
+                 String company, Double open, Double high, Double low, Double volume, String securityCode) {
+        Quote(String exchange, String symbol, String isin, double close, double turnover) {
+            this(exchange, symbol, isin, close, turnover, null, null, null, null, null, null);
+        }
+    }
     record Candidate(String exchange, String symbol, String isin, String company, double close, LocalDate session,
                      Double turnoverCr, String decision) {}
     record Archive(LocalDate date, URI source, Map<String,Quote> quotes) {}
     record Scan(String outcome, OffsetDateTime retrievedAt, URI amfiSource, int smallCaps, int mapped,
                 int priceMatches, int liquidityPasses, Map<String,LocalDate> priceDates,
                 List<URI> exchangeSources, List<String> limitations, List<Candidate> candidates) {}
+
+    record Classification(URI source, Map<String,String> smallCaps, LocalDate checked) {}
+    private Classification classification;
+
+    synchronized Classification classification(LocalDate today) throws IOException, InterruptedException {
+        if (classification != null && classification.checked.equals(today)) return classification;
+        URI workbook = expectedWorkbook(today);
+        byte[] bytes = download(workbook);
+        if (bytes == null) {
+            workbook = workbookLink(required(AMFI));
+            bytes = required(workbook);
+        }
+        classification = new Classification(workbook, classifications(bytes), today);
+        return classification;
+    }
 
     @PostMapping("/discover")
     synchronized Scan scan(@RequestBody EquityScreen.Config config) throws InterruptedException {
@@ -42,13 +62,9 @@ class EquityDiscovery {
         URI workbook;
         Map<String,String> smallCaps;
         try {
-            workbook = expectedWorkbook(now.toLocalDate());
-            byte[] bytes = download(workbook);
-            if (bytes == null) {
-                workbook = workbookLink(required(AMFI));
-                bytes = required(workbook);
-            }
-            smallCaps = classifications(bytes);
+            var current = classification(now.toLocalDate());
+            workbook = current.source;
+            smallCaps = current.smallCaps;
         } catch (IOException | RuntimeException e) {
             return new Scan("DATA UNAVAILABLE",now.toOffsetDateTime(),AMFI,0,0,0,0,Map.of(),List.of(),
                     List.of("The current AMFI classification could not be loaded."),List.of());
@@ -263,11 +279,26 @@ class EquityDiscovery {
                 if (price.isBlank() || value.isBlank()) continue;
                 double close = Double.parseDouble(price), turnover = Double.parseDouble(value);
                 if (Double.isFinite(close) && close > 0 && Double.isFinite(turnover) && turnover > 0)
-                    quotes.put(isin,new Quote(exchange,symbol,isin,close,turnover));
+                    quotes.put(isin,new Quote(exchange,symbol,isin,close,turnover,field(row,"FinInstrmNm"),
+                            number(row,"OpnPric"),number(row,"HghPric"),number(row,"LwPric"),
+                            number(row,"TtlTradgVol"),field(row,"FinInstrmId")));
             }
         }
         if (quotes.isEmpty()) throw new IOException("Archive has no supported equity quotes");
         return quotes;
+    }
+
+    private static String field(org.apache.commons.csv.CSVRecord row, String key) {
+        return row.isSet(key) && !row.get(key).isBlank() ? row.get(key) : null;
+    }
+
+    private static Double number(org.apache.commons.csv.CSVRecord row, String key) {
+        try {
+            String value = field(row,key);
+            if (value == null) return null;
+            double n = Double.parseDouble(value);
+            return Double.isFinite(n) && n >= 0 ? n : null;
+        } catch (NumberFormatException ignored) { return null; }
     }
 
     static URI expectedWorkbook(LocalDate today) {

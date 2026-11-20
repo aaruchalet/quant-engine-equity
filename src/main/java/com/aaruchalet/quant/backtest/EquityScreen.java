@@ -12,7 +12,12 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api/equity")
 public class EquityScreen {
     public record Config(double minPrice, double maxPrice, int minSessions, int maxSessions, Double capital, Double availableCash) {}
-    public record Evidence(String source, OffsetDateTime asOf, String rationale, Integer points, Boolean passed) {}
+    public record Evidence(String source, OffsetDateTime asOf, String rationale, Integer points, Boolean passed,
+                           String value, String previous, String trend, String benchmark, String period) {
+        public Evidence(String source, OffsetDateTime asOf, String rationale, Integer points, Boolean passed) {
+            this(source, asOf, rationale, points, passed, null, null, null, null, null);
+        }
+    }
     public record Plan(String setup, Boolean confirmed, Double entry, Double stop, Double target1, Double target2,
                        Double entryCost, Double stopExitCost, Double targetExitCost, Long executableUnits,
                        Integer sessions, String invalidation, Double entryLow, Double target2ExitCost,
@@ -176,7 +181,7 @@ public class EquityScreen {
                 && Set.of("NOW","BREAKOUT","PULLBACK").contains(Objects.toString(p.setup,""));
     }
 
-    private static boolean verified(Evidence e, OffsetDateTime asOf) {
+    static boolean verified(Evidence e, OffsetDateTime asOf) {
         if (e == null || e.asOf == null || e.asOf.isAfter(asOf) || blank(e.source) || blank(e.rationale)) return false;
         try {
             URI uri = URI.create(e.source);

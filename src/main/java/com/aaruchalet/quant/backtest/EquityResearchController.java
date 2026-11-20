@@ -22,14 +22,15 @@ class EquityResearchController {
         this.discovery = discovery;
     }
 
-    record DailyPrice(LocalDate session, double close, double tradedValueCr, String source) {}
+    record DailyPrice(LocalDate session, double close, double tradedValueCr, String source,
+                      Double open, Double high, Double low, Double volume) {}
     record Research(String exchange, String symbol, String isin, String status,
                     OffsetDateTime retrievedAt, LocalDate asOf, int observedSessions,
                     int requiredSessions, Double latestClose, Double previousClose,
                     Double priceChangePercent, Double averageTradedValueCr,
                     Double ema9Indicative, Double ema20Indicative, Double rsi14Indicative,
                     Double periodLow, Double periodHigh, List<DailyPrice> dailyPrices,
-                    List<String> missingChecks, List<String> limitations) {}
+                    List<String> missingChecks, List<String> limitations, String company, String securityCode) {}
 
     @GetMapping("/research")
     Research research(@RequestParam String isin, @RequestParam String exchange) {
@@ -60,13 +61,15 @@ class EquityResearchController {
         var ordered = new ArrayList<>(archives);
         ordered.sort(Comparator.comparing(EquityDiscovery.Archive::date));
         var data = new ArrayList<DailyPrice>();
-        String symbol = null;
+        String symbol = null, company = null, securityCode = null;
         for (var archive : ordered) {
             var quote = archive.quotes().get(isin);
             if (quote == null) continue;
             symbol = quote.symbol();
+            company = quote.company();
+            securityCode = quote.securityCode();
             data.add(new DailyPrice(archive.date(), quote.close(),
-                    quote.turnover() / 10_000_000d, archive.source().toString()));
+                    quote.turnover() / 10_000_000d, archive.source().toString(), quote.open(), quote.high(), quote.low(), quote.volume()));
         }
         if (data.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND,
                 "Security was not found in the available verified " + exchange + " archives.");
@@ -100,7 +103,7 @@ class EquityResearchController {
                 data.getLast().close(),prev,change,average,ema9,ema20,rsi,
                 data.stream().mapToDouble(DailyPrice::close).min().orElseThrow(),
                 data.stream().mapToDouble(DailyPrice::close).max().orElseThrow(),
-                List.copyOf(data),missing,List.copyOf(limits));
+                List.copyOf(data),missing,List.copyOf(limits),company,securityCode);
     }
 
     private static double ema(List<Double> closes, int period) {
