@@ -205,7 +205,23 @@ def fetch_batch(token: str, headers: dict[str, str], start: dt.date, through: dt
         with urllib.request.urlopen(req, timeout=35) as response:
             result = json.load(response)
     except urllib.error.HTTPError as exc:
-        raise DownloadError(f'Broker rejected history request: HTTP {exc.code} (check JWT, permissions, egress)') from exc
+        # Interpret only known error signatures. Never echo arbitrary upstream
+        # response text: broker replies must not leak sensitive information.
+        if exc.code == 403:
+            try:
+                error_sample = exc.read(512).decode('utf-8', errors='replace').lower()
+            except OSError:
+                error_sample = ''
+            if 'exceeding access rate' in error_sample or 'rate limit' in error_sample:
+                raise DownloadError('Broker HTTP 403: historical API access-rate restriction. '
+                                    'No automatic retry; pause and contact Angel One if it persists') from exc
+            raise DownloadError('Broker HTTP 403 Forbidden: historical API request blocked; '
+                                'check broker permissions, session, IP and account limits. '
+                                'No automatic retry') from exc
+        if exc.code == 429:
+            raise DownloadError('Broker HTTP 429 Too Many Requests; no automatic retry') from exc
+        raise DownloadError(f'Broker rejected history request: HTTP {exc.code} '
+                            '(check JWT, permissions, egress)') from exc
     except (OSError, ValueError) as exc:
         raise DownloadError('Broker historical API unavailable or returned invalid JSON') from exc
     if not isinstance(result, dict) or result.get('status') is not True or not isinstance(result.get('data'), list):
@@ -215,38 +231,126 @@ def fetch_batch(token: str, headers: dict[str, str], start: dt.date, through: dt
     return result['data']
 
 
+def checkpoint_path(cache_dir: Path, token: str,
+                    start: dt.date, through: dt.date) -> Path:
+    if not re.fullmatch(r'[0-9]{1,20}', token):
+        raise DownloadError('Invalid NSE instrument token for historical checkpoint')
+    return cache_dir / f'NSE-NIFTYBEES-FIVE_MINUTE-{token}-{start:%Y%m%d}-{through:%Y%m%d}.json'
+
+
+def read_checkpoint(path: Path, token: str, start: dt.date,
+                    through: dt.date) -> dict[dt.datetime, tuple[str, ...]] | None:
+    if not path.exists():
+        return None
+    if path.is_symlink() or not path.is_file():
+        raise DownloadError('Unexpected checkpoint file type; refusing untrusted history')
+    try:
+        with path.open('r', encoding='utf-8') as file:
+            payload = json.load(file)
+        if (not isinstance(payload, dict) or payload.get('schema') != 1 or
+            payload.get('token') != token or payload.get('start') != str(start) or
+            payload.get('through') != str(through) or
+            not isinstance(payload.get('rows'), list)):
+            raise ValueError('checkpoint metadata mismatch')
+        result: dict[dt.datetime, tuple[str, ...]] = {}
+        for row in payload['rows']:
+            stamp, values = validate_row(row)
+            if not (start <= stamp.date() <= through):
+                raise ValueError('checkpoint date outside window')
+            if stamp in result and result[stamp] != values:
+                raise ValueError('checkpoint contains conflicting bars')
+            result[stamp] = values
+        return result
+    except (ValueError, TypeError, OSError, DownloadError) as exc:
+        raise DownloadError(f'History checkpoint for {start} to {through} is invalid; '
+                            'review or remove just that cache file before retrying') from exc
+
+
+def write_checkpoint(path: Path, token: str, start: dt.date,
+                     through: dt.date,
+                     rows: dict[dt.datetime, tuple[str, ...]]) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if path.parent.is_symlink() or path.parent.stat().st_uid != os.geteuid():
+        raise DownloadError('History cache directory owner/type is not trusted')
+    path.parent.chmod(0o700)
+    if path.is_symlink():
+        raise DownloadError('History checkpoint symlink is not allowed')
+    payload = {
+        'schema': 1, 'token': token, 'start': str(start), 'through': str(through),
+        'rows': [[stamp.isoformat(timespec='seconds'), *values]
+                 for stamp, values in sorted(rows.items())]
+    }
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', newline='\n',
+                                         prefix='.history-window-', suffix='.tmp',
+                                         dir=path.parent, delete=False) as file:
+            temp_path = Path(file.name)
+            os.chmod(temp_path, 0o600)
+            json.dump(payload, file, separators=(',', ':'))
+        os.replace(temp_path, path)
+    finally:
+        if temp_path:
+            temp_path.unlink(missing_ok=True)
+
+
 def collect_history(start: dt.date, through: dt.date, token: str, headers: dict[str, str],
-                    batch_days: int = 14, pause: float = 1.2,
-                    fetcher=fetch_batch) -> dict[dt.datetime, tuple[str, ...]]:
+                    batch_days: int = 14, pause: float = 10.0,
+                    fetcher=fetch_batch, cache_dir: Path | None = None
+                    ) -> dict[dt.datetime, tuple[str, ...]]:
+    if not 1 <= batch_days <= 30 or pause < 0:
+        raise DownloadError('Invalid history batch size or request interval')
     candles: dict[dt.datetime, tuple[str, ...]] = {}
     cursor = start - dt.timedelta(days=30)
     iteration = 0
+    last_fetch_at: float | None = None
     while cursor <= through:
         end = min(through, cursor + dt.timedelta(days=batch_days - 1))
-        if iteration:
-            time.sleep(pause)
         iteration += 1
-        ignored_late = 0
-        for row in fetcher(token, headers, cursor, end):
-            # Skip only known, correctly aligned post-14:55 NSE session times.
-            # Preserve strict timestamp/OHLCV validation for every retained bar.
-            if not isinstance(row, list) or len(row) < 6:
-                raise DownloadError('Vendor returned malformed OHLCV row')
+        cache_path = checkpoint_path(cache_dir, token, cursor, end) if cache_dir else None
+        window = read_checkpoint(cache_path, token, cursor, end) if cache_path else None
+        if window is None:
+            if last_fetch_at is not None:
+                remaining = pause - (time.monotonic() - last_fetch_at)
+                if remaining > 0:
+                    time.sleep(remaining)
+            # One request only. A 403/429 stops this run; never bypass broker limits.
+            last_fetch_at = time.monotonic()
             try:
-                row_timestamp = parse_timestamp(str(row[0]))
-            except (ValueError, TypeError, OverflowError) as exc:
-                raise DownloadError('Vendor returned invalid candle timestamp') from exc
-            if row_timestamp.time() in EXTRA_SESSION_TIMES:
-                ignored_late += 1
-                continue
-            stamp, values = validate_row(row)
-            if cursor <= stamp.date() <= end:
-                if stamp in candles and candles[stamp] != values:
-                    raise DownloadError('Conflicting duplicate historical candle')
-                candles[stamp] = values
-        print(f'Fetched window {iteration}: {cursor} to {end}' +
-              (f' (ignored {ignored_late} post-14:55 NSE candles)' if ignored_late else ''),
-              file=sys.stderr)
+                vendor_rows = fetcher(token, headers, cursor, end)
+            except DownloadError as exc:
+                raise DownloadError(f'Window {cursor} to {end}: {exc}. '
+                                    'Previously completed windows are cached when enabled') from exc
+            window = {}
+            ignored_late = 0
+            for row in vendor_rows:
+                # Some broker responses include later regular NSE session candles.
+                if not isinstance(row, list) or len(row) < 6:
+                    raise DownloadError('Vendor returned malformed OHLCV row')
+                try:
+                    row_timestamp = parse_timestamp(str(row[0]))
+                except (ValueError, TypeError, OverflowError) as exc:
+                    raise DownloadError('Vendor returned invalid candle timestamp') from exc
+                if row_timestamp.time() in EXTRA_SESSION_TIMES:
+                    ignored_late += 1
+                    continue
+                stamp, values = validate_row(row)
+                if cursor <= stamp.date() <= end:
+                    if stamp in window and window[stamp] != values:
+                        raise DownloadError('Conflicting duplicate historical candle')
+                    window[stamp] = values
+            if cache_path:
+                write_checkpoint(cache_path, token, cursor, end, window)
+            print(f'Fetched window {iteration}: {cursor} to {end}' +
+                  (f' (ignored {ignored_late} post-14:55 NSE candles)' if ignored_late else '') +
+                  (' [checkpoint saved]' if cache_path else ''), file=sys.stderr)
+        else:
+            print(f'Cached window {iteration}: {cursor} to {end} '
+                  f'({len(window)} validated candles)', file=sys.stderr)
+        for stamp, values in window.items():
+            if stamp in candles and candles[stamp] != values:
+                raise DownloadError('Conflicting duplicate historical candle')
+            candles[stamp] = values
         cursor = end + dt.timedelta(days=1)
     return candles
 
@@ -304,6 +408,11 @@ def main() -> int:
     p.add_argument('--runtime-env', type=Path, default=Path('/opt/aaru/deploy/runtime.env'))
     p.add_argument('--credentials-file', type=Path,
                    help='Private mode-0600 test-app env file; avoids reading production broker config')
+    p.add_argument('--cache-dir', type=Path,
+                   default=Path.home() / '.cache' / 'quant-engine-test' / 'angel-one-history',
+                   help='Private persistent, resumable market-data checkpoints on EC2')
+    p.add_argument('--request-interval', type=float, default=10.0,
+                   help='Minimum seconds between new historical API requests; default 10')
     args = p.parse_args()
     try:
         start, through = dt.date.fromisoformat(args.from_date), dt.date.fromisoformat(args.through_date)
@@ -316,7 +425,8 @@ def main() -> int:
         headers, preset = load_credentials(container, actual, args.runtime_env,
                                            credentials_file=args.credentials_file)
         token = resolve_token(preset)
-        candles = collect_history(start, through, token, headers)
+        candles = collect_history(start, through, token, headers,
+                                  pause=args.request_interval, cache_dir=args.cache_dir)
         usable, skipped, sessions = summarize_complete(candles, start, through)
         write_csv(args.output, usable)
         print(f'Exported {len(usable)} validated candles across {sessions} requested-range sessions; '
