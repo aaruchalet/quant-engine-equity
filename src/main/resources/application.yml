@@ -2,6 +2,8 @@ server:
   port: ${PORT:8081}
   address: ${HOST:127.0.0.1}
 spring:
+  config:
+    import: optional:file:./config/strategy-vwap-ema.example.yml
   application:
     name: quant-engine-test
 management:
