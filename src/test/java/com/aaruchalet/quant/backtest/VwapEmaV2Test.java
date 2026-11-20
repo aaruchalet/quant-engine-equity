@@ -63,6 +63,21 @@ class VwapEmaV2Test {
     }
 
     @Test
+    void shortRequiresBearishCrossoverRsiUnder50AndFinalVwapRejection() {
+        BacktestReport report=new BacktestEngineV2().run(
+                new CsvHistoryRepository.History(shortScenario(),List.of(),2),
+                StrategyConfig.from(request()),VwapEmaV2Config.from(new MockEnvironment()));
+        assertTrue(report.totalTrades()>=1,
+                "A single valid confirmed VWAP rejection after bearish EMA/RSI checks should permit a short");
+        assertTrue(report.trades().stream().anyMatch(t->t.side()==Side.SHORT));
+        for(var trade:report.trades()) {
+            assertEquals(1,trade.quantity());
+            assertEquals(trade.entryPrice()*1.01,trade.stopLoss(),0.04);
+            assertEquals(trade.entryPrice()*0.98,trade.target(),0.04);
+        }
+    }
+
+    @Test
     void rejectLiveModeAndOvernightIntraday() {
         assertThrows(IllegalArgumentException.class,()->VwapEmaV2Config.from(
                 new MockEnvironment().withProperty("trading.mode","LIVE")));
@@ -105,6 +120,22 @@ class VwapEmaV2Test {
             else if(t.equals(LocalTime.of(9,40))&&gapUnderVwap) p=95;
             double low=t.equals(LocalTime.of(9,35))?96:p-.1;
             all.add(bar(TEST_DAY,t,p,low,p+.1));
+        }
+        return all;
+    }
+
+    private List<Candle> shortScenario() {
+        List<Candle> all=new ArrayList<>();
+        for(LocalTime t=LocalTime.of(9,15);!t.isAfter(LocalTime.of(15,0));t=t.plusMinutes(5))
+            all.add(bar(WARMUP,t,100,99.9,100.1));
+        for(LocalTime t=LocalTime.of(9,15);!t.isAfter(LocalTime.of(15,0));t=t.plusMinutes(5)) {
+            double p=95.5;
+            if(t.equals(LocalTime.of(9,15))||t.equals(LocalTime.of(9,20))) p=103;
+            else if(t.equals(LocalTime.of(9,25))) p=102;
+            else if(t.equals(LocalTime.of(9,30))) p=99;
+            else if(t.equals(LocalTime.of(9,35))) p=96;
+            double high=t.equals(LocalTime.of(9,35))?105:p+.1;
+            all.add(bar(TEST_DAY,t,p,p-.1,high));
         }
         return all;
     }
