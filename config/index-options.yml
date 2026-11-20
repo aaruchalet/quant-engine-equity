@@ -1,0 +1,21 @@
+# Each options replay uses one shared INR entry budget per IST session.
+dailyBudgetInr: 15000
+maximumLots: 2
+signalSymbols:
+  nifty: NIFTYBEES
+  sensex: SENSEXETF
+# Signed number of listed strikes from the closest strike. Lower strike wins ATM ties.
+callStrikeOffset: 0
+putStrikeOffset: -1
+# Premium turnover percentages, per executed order. Angel One equity options.
+# https://assist.angelone.in/assist/plans-and-pricing
+fees:
+  brokeragePerOrderInr: 20
+  niftyExchangePercent: 0.03552
+  sensexExchangePercent: 0.0325
+  niftyIpftPercent: 0.0000001
+  sensexIpftPercent: 0
+  sebiPercent: 0.0001
+  stampDutyBuyPercent: 0.003
+  sttSellPercent: 0.15
+  gstPercent: 18

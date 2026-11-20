@@ -108,6 +108,25 @@ Net trade P&L deducts estimated charges on both legs from gross P&L. Capital and
 
 The research service validates the supported PAPER, five-minute, current-session EMA crossover and HLC3 VWAP configuration. Sections 4 and 5 list the shipped session and risk defaults. [V2 regression tests](https://github.com/aaruchalet/quant-engine-test/blob/main/src/test/java/com/aaruchalet/quant/backtest/VwapEmaV2Test.java)
 
+### 3B. NIFTY and SENSEX long-option replay
+
+Use `POST /api/backtests/vwap-ema-v2/options` in the research service. The completed ETF candle supplies the same EMA crossover, RSI and VWAP-side signal as V2. Recheck the ETF open against the confirmed VWAP at the next bar. Use the synchronized **index spot** to select a listed strike and the option book to simulate a fill.
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `dailyBudgetInr` | ₹15,000 | Cumulative entry premiums plus estimated buy fees across both indices per IST session |
+| `maximumLots` | 2 | Buy the largest whole-lot quantity that fits the remaining budget and available two-sided book depth |
+| `callStrikeOffset` | 0 | Bullish signal buys an ATM call |
+| `putStrikeOffset` | −1 | Bearish signal buys a put one listed strike below ATM |
+| `signalSymbols` | NIFTYBEES, SENSEXETF | Traded-volume proxies for the two indices |
+| `fees` | Angel One Plus equity options | Per-order brokerage, venue-specific exchange/IPFT estimates, SEBI, buy stamp duty, sell STT and GST |
+
+Edit `config/index-options.yml` or select a file with `OPTIONS_CONFIG_PATH`. Keep NIFTY at **65 units per lot** and SENSEX at **20** in code. Reject snapshots whose contract lot differs. The closest strike to spot wins, with ties resolved toward the lower strike. Offsets count listed strikes in the supplied expiry. Skip when the chosen strike, adequate depth, or one affordable lot is unavailable. A cheaper put premium is possible and depends on the actual ask.
+
+One replay shares a single open position and daily ledger across both markets. NIFTY has priority for simultaneous eligible entries. Closing proceeds and profits do not replenish the day's entry allowance. A new IST session resets it. Exit fees come out of sale proceeds. Separate API requests are independent backtests. The existing V2 strategy YAML supplies the premium stop and target percentages, trading hours, optional exits and daily trade/P&L limits. Buy at the ask and sell at the observed bid. Evaluate the spread on entry and subsequent five-minute snapshots, including the square-off. A bid through the stop can realize a larger loss. These snapshots cannot resolve a stop touched and recovered between observations.
+
+Use a complete single-expiry chain per snapshot from NSE for NIFTY and BSE or an entitled provider for SENSEX. Keep the same expiry through the session. Join the actual as-of time to the corresponding bar open. Reject mismatched timestamps, expired contracts and missing executable bids for a held option. Supply the full strike ladder, including unquoted strikes. See the README for data preparation and the replay command.
+
 ## 4. Mandatory configurable intraday schedule (Asia/Kolkata)
 
 The new V2 session defaults are **market 09:15**, **strategy start 09:20**, **entry fill start 09:30**, **last entry 14:45**, **square-off 15:00**, **normal cash-market close 15:30**, **overnight carry disabled**. These are configuration fields, never hard-coded execution constants. See §3A and the reference YAML for full details.
@@ -119,7 +138,7 @@ Market data and VWAP begin at the actual **09:15** equity session open; strategy
 
 ## 5. Risk management and order-safety rules
 
-The clarified V2 defaults are **fixed quantity 1 (max 10)**, maximum one position, **1.0% percent-of-entry stop**, **2.0% percent-of-entry profit target**, maximum **5 trades/day**, realized daily loss cutoff **₹5,000**, realized daily profit cutoff **₹10,000**, and **closePositionOnDailyLoss = false**. Daily P&L caps stop additional entries; they do not, by themselves, force-close current positions when that toggle is false. Actual stop/target, allowed VWAP invalidation and mandatory square-off still apply. Make quantities, daily limits and position/exposure/risk constraints validated in external configuration. Preserve separate capital-risk sizing semantics; a 1.0% price stop is not the same as 1.0% of account equity at risk.
+For the ETF backtest, the V2 defaults are **fixed quantity 1 (max 10)**, maximum one position, **1.0% percent-of-entry stop**, **2.0% percent-of-entry profit target**, maximum **5 trades/day**, realized daily loss cutoff **₹5,000**, realized daily profit cutoff **₹10,000**, and **closePositionOnDailyLoss = false**. Daily P&L caps stop additional entries; they do not, by themselves, force-close current positions when that toggle is false. Actual stop/target, allowed VWAP invalidation and mandatory square-off still apply. Make quantities, daily limits and position/exposure/risk constraints validated in external configuration. Preserve separate capital-risk sizing semantics; a 1.0% price stop is not the same as 1.0% of account equity at risk.
 
 Model slippage, gaps, full charges, exchange lot sizes, cash/margins, contract type and real risk exposure. The parent must gate any LIVE trading with explicit user authorization, credential isolation, idempotent orders, stale-quote safeguards, restart reconciliation and broker entitlement checks. A setting alone never authorizes sending real orders. The standalone backtester always remains order-free. Overnight carry must be rejected if product type is INTRADAY.
 
