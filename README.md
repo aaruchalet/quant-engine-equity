@@ -97,24 +97,51 @@ NIFTY 50 **spot index is not a tradable instrument**, and index bar volume is no
 
 All parameter overrides can be sent in the JSON `POST` body. See `BacktestRequest` for names and `StrategyConfig` for validations/defaults. The engine uses local configured CSV paths only; callers cannot read arbitrary server files.
 
-### Requested strategy V2 — EMA/RSI checked first, VWAP bounce checked LAST
+### Implemented separate V2 — EMA crossover, RSI, then VWAP final bounce
 
-The requested next strategy is **VWAP_BOUNCE_EMA_V2**. See [master instructions](doc/instructions-algo-trading.md#3a-new-configurable-vwap-third-bounce--ema-crossover-strategy-requested-2026-11-20) and [reference configuration](config/strategy-vwap-ema.example.yml). The example YAML is **not automatically loaded by Spring Boot**, so editing it alone will **not change the backtest**.
+The **new isolated research-only V2** uses `POST /api/backtests/vwap-ema-v2` and is selectable in the local browser dashboard. It does **not** replace the original `/api/backtests/ema-vwap-rsi` V1 simulation or connect to order placement. In the project-root working directory, `src/main/resources/application.yml` imports and validates `config/strategy-vwap-ema.example.yml` for V2; the parent repository does not auto-load this file.
 
-| Parameter | V2 requirement |
+| Entry gate (strict order) | V2 behavior |
 | --- | --- |
-| Long entry | Close and next entry fill **above VWAP**, NO bounce counting; confirmed single VWAP rebound as final gate after same-session EMA **9 crosses above 20**, RSI **>50** |
-| Short entry | Close and next entry fill **below VWAP**, NO bounce counting; confirmed single VWAP rejection as final gate after EMA **9 crosses below 20**, RSI **<50**; real shorting subject to broker/market eligibility |
-| RSI | Filter on, period **14**; RSI exits **off**; short exit above **55** reserved, long exit below **unset** because no threshold was specified |
-| Exits | Stop-loss **enabled, 1.0% of entry price**; take-profit **enabled, 2.0% of entry price**; generic exit on failure of ANY original entry filter **off** |
-| Quantity | Default **1**, maximum **10**, one concurrent position; validate lot size, capital and exposure |
-| Daily limits | Up to **5** trades; realized loss **₹5,000**; realized profit **₹10,000**; block new entries at limits; close existing position on daily-loss limit **false** |
-| Session | **Asia/Kolkata**, VWAP data from market open **09:15**, strategy starts **09:20**, entries start **09:30**, last entry **14:45**, square-off **15:00**, normal equity close **15:30**; all configurable |
-| Carry-over | Configurable, default **false**; overnight + INTRADAY product invalid |
-| Trading / order | **PAPER** by default; optional **LIVE** only in separately authorized parent application; **MARKET**, **INTRADAY**, **DAY** |
-| Logging | **INFO**, redact broker credentials |
+| EMA first | Confirmed same-session EMA9 crosses above EMA20 for LONG or below for SHORT; maintain side until opposite crossing |
+| RSI second | RSI(14) strictly **>50** for LONG or **<50** for SHORT; RSI exit **disabled** |
+| Time, capital, daily limits | Before VWAP: valid entry hours, 1–10 quantity, at most five trades/day, ₹5,000 realized loss and ₹10,000 profit caps |
+| **VWAP FINAL** | A **single** completed-bar LOW touching VWAP and CLOSE > VWAP confirms LONG; a **single** HIGH touching VWAP and CLOSE < VWAP confirms SHORT; NO bounce counts; recheck the price side at next-bar OPEN |
+| Exit | 1% entry-price stop loss; 2% entry-price profit target; forced square-off at configured **15:00 OPEN** |
+| Trading safety | PAPER-only in `quant-engine-test`; MARKET / INTRADAY / DAY; carry-over false; no live broker order capability |
 
-**V1 versus V2 distinction:** Your currently running Java dashboard still evaluates the old EMA9/20 + VWAP + RSI55–75 strategy with an early setup-invalidation exit, **0.5% stop**, **2R target** and **14:55** square-off. The existing historical CSV contains bars only through the **14:55 open**. Implement a V2-specific config loader, strategy/bounce state machine, real 15:00 opening-price coverage, 15:00 exit and tests before calling a new run V2. The existing CSV is sufficient to reproduce V1, **not sufficient for a verified V2 15:00 exit without additional price data**. Neither the dashboard nor this project may place live orders.
+#### The V2 dataset is different from the old CSV
+
+Your successful November 20 historical CSV was exported only through **14:55** (69 bars per full session). The V2 default requires the **genuine 15:00 candle opening price**, which that CSV does not contain. The V2 loader rejects a dataset without that price; **never infer 15:00 from 14:55 close**.
+
+When Angel One permits historical requests, use the new opt-in V2 exporter **from your Mac**. Your original CSV and 14:55 caches are preserved; V2 uses a *separate* filename and separate 15:00 checkpoint set:
+
+```bash
+cd /Users/manjeetkumar/Desktop/FileSystem/quant-engine-test
+git pull origin main
+V2_INCLUDE_1500=1 \
+EC2_SSH=ubuntu@13.202.233.29 \
+EC2_SSH_KEY="$HOME/.ssh/quant-test-ec2" \
+./scripts/pull-history-from-ec2.sh
+```
+
+On success, V2 data will be in:
+
+```text
+data/niftybees-5min-2026-05-20-to-2026-11-19-v2-1500.csv
+```
+
+Restart the Spring Boot process using that *new* CSV:
+
+```bash
+export HISTORY_SYMBOL=NIFTYBEES
+export HISTORY_CSV_PATH="$PWD/data/niftybees-5min-2026-05-20-to-2026-11-19-v2-1500.csv"
+./gradlew bootRun
+```
+
+Open **http://127.0.0.1:8081/**, choose **V2 · EMA → RSI → VWAP bounce**, and run. Alternatively POST the original JSON body to `/api/backtests/vwap-ema-v2`. V2 strategy rules and session times are controlled by the external YAML; V1-only form inputs are disabled when V2 is selected.
+
+**Important:** The new exporter still performs authorized, read-only Angel One requests from the registered EC2 egress and can encounter HTTP 403/AB1021 broker rate limits. It will stop without aggressive retries and preserve V2 checkpoints. Credentials are never copied into Git. No six-month V2 performance figure has yet been measured/verified. Exchanging the old CSV for the new one is required for the actual V2 historical run.
 
 
 ## Scope and limitations
