@@ -2,7 +2,15 @@
 # Run ON THE MAC. Uses an already-authorized SSH account; never uploads broker credentials.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-EC2_SSH="${EC2_SSH:-ubuntu@quant-engine.aaruchalet.com}"
+# EC2_SSH must point to the actual SSH-reachable EC2 address or an authorized SSH alias.
+# The public application domain may be routed through a reverse proxy and is NOT a known SSH endpoint.
+EC2_SSH="${EC2_SSH:-}"
+if [[ -z "$EC2_SSH" ]]; then
+  echo 'Missing EC2_SSH. Find quant-engine-prod public IPv4 in AWS EC2 (ap-south-1).' >&2
+  echo 'Usage: EC2_SSH=ubuntu@ACTUAL_EC2_PUBLIC_IP ./scripts/pull-history-from-ec2.sh' >&2
+  echo 'Do not assume quant-engine.aaruchalet.com accepts SSH.' >&2
+  exit 2
+fi
 OUT="${1:-${SCRIPT_DIR}/../data/niftybees-5min-2026-05-20-to-2026-11-19.csv}"
 FROM_DATE="${FROM_DATE:-2026-05-20}"
 THROUGH_DATE="${THROUGH_DATE:-2026-11-19}"
