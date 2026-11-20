@@ -47,7 +47,7 @@ function renderCompanyResearch(out,r,candidate,ui) {
     ['Market capitalisation',val('marketCap')],['Free float',val('freeFloat')],['Official close',money(market?.latestClose)],
     ['Previous close',money(market?.previousClose)],['Day change',market?.priceChangePercent==null?'N/A':number(market.priceChangePercent)+'%'],
     ['52-week low / high',money(r.chart.levels['52-week low'])+' / '+money(r.chart.levels['52-week high'])],
-    ['Market regime',r.regime]]));
+    ['Evaluated price',money(r.evaluatedPrice)],['Quote time',r.priceAsOf||r.dataAsOf||'N/A'],['Market regime',r.regime]]));
   if(r.classificationSource)snapshot.append(source('AMFI classification workbook',r.classificationSource));
   const technical=section('Technical study',companyPriceChart(r,ui));
   const indicators=r.indicators;
@@ -61,6 +61,15 @@ function renderCompanyResearch(out,r,candidate,ui) {
       ['ADX (14)',number(indicators.adx14)],['ATR (14)',money(indicators.atr14)],['Relative volume (20)',number(indicators.relativeVolume)],
       ['Avg traded value (20), ₹ cr',number(market?.averageTradedValueCr)],['Avg traded value (60), ₹ cr',val('tradedValue60Cr')],
       ['Relative strength vs Smallcap 250',val('outperformsSmallcap')],...Object.entries(r.chart.levels).map(([k,v])=>[k,number(v)])]));
+  if(adjusted && r.chart.daily.length) {
+    const latest=r.chart.daily.at(-1),ceiling=r.chart.levels['Prior 20-session resistance'];
+    const positive=latest.close>ceiling;
+    technical.append(paragraph(positive
+      ? 'Close cleared the prior 20-session high. '+(indicators.relativeVolume>=1.5
+          ? 'Volume confirms the breakout.' : 'Volume confirmation is missing, increasing false-breakout risk.')
+      : 'Close has not cleared the prior 20-session high.'),
+      paragraph('ATR measures the recent average daily range. A wider range increases stop and gap exposure.'));
+  }
   const financial=section('Financial health and valuation',evidenceTable('Results and peer comparisons',{
     revenueGrowth:'Revenue growth',recurringProfit:'Recurring PAT',quarterProfitGrowth:'Quarterly profit growth',ebitda:'EBITDA',
     eps:'EPS',margins:'Operating / net margins',roe:'ROE',roce:'ROCE',debtEquity:'Debt / equity',interestCoverage:'Interest coverage',
@@ -71,13 +80,21 @@ function renderCompanyResearch(out,r,candidate,ui) {
     relatedParty:'Related-party disclosures',surveillance:'ASM / GSM / trade-to-trade / suspension',circuits:'Circuit limits',depth:'Depth / spread'}));
   const news=section('News and upcoming catalysts',evidenceTable('Filed developments',{
     scheduledEvent:'Scheduled event',recentDevelopment:'Recent development',quantifiedDevelopment:'Financial impact',materialAdverseEvent:'Material adverse event'}));
+  for(const [key,label,tone] of [['materialAdverseEvent','Material adverse event','NEGATIVE'],
+    ['recentDevelopment','Filed operating development','POSITIVE'],['scheduledEvent','Scheduled event','NEUTRAL']]) {
+    const f=evidence.get(key);
+    if(f?.evidence.passed && f.current) {
+      const notice=node('p');notice.append(badge(tone),node('span',' '+f.evidence.rationale+' · '),
+        source(label+' · '+f.evidence.asOf,f.evidence.source));news.append(notice);
+    }
+  }
   if(!r.announcements.length)news.append(paragraph('No matching dated announcements retrieved. Coverage may be incomplete.'));
   for(const item of r.announcements) {
     const row=node('p');row.append(source(item.headline,item.url),node('small',item.publishedAt+' · '+item.assessment+' · '+item.rationale));news.append(row);
   }
   const score=section('Risk and opportunity score',dataTable(r.score==null?'Overall score unavailable':r.score+' / 100 · '+
       (r.score>=85?'High-conviction candidate':r.score>=75?'Candidate':r.score>=60?'Watchlist':'Avoid'),
-    ['Category','Points','Available','Tests'],r.categories.map(c=>[c.name,c.points??'N/A',c.maximum,c.tests.join(', ')]),''),
+    ['Category','Points','Available','Tests'],r.categories.map(c=>[c.name,c.points??'N/A',c.maximum,c.tests.map(k=>k.replace(/([a-z])([A-Z])/g,'$1 $2')+' '+(r.pointsByTest?.[k]??'N/A')).join(' · ')]),''),
     paragraph(r.exclusions.length?'Hard exclusions':'No confirmed hard exclusion reported. Unverified checks appear below.'));
   if(r.exclusions.length)score.append(list(r.exclusions));
   const pct=v=>v==null||!p.entry?'N/A':number(100*v/p.entry)+'%';

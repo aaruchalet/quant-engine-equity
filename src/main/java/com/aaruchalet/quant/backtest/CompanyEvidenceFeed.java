@@ -38,7 +38,7 @@ class CompanyEvidenceFeed {
                 byte[] payload=body.readNBytes(32_000_001);
                 if(payload.length>32_000_000) throw new IOException("Company feed exceeded limit");
                 var snapshot=json.readValue(payload,EquityScreen.Snapshot.class);
-                if(snapshot==null || snapshot.stocks()==null || snapshot.asOf()==null || snapshot.asOf().toInstant().isAfter(now))
+                if(snapshot==null || snapshot.stocks()==null || snapshot.asOf()==null || snapshot.asOf().toInstant().isAfter(Instant.now()))
                     throw new IOException("Invalid provider snapshot");
                 cached=new Read(snapshot,false,Instant.now());
             }

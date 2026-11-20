@@ -9,11 +9,40 @@ final class ResearchChart {
     record Week(LocalDate lastSession,double open,double high,double low,double close,double volume) {}
     record Series(String basis,List<Point> daily,List<Week> weekly,Map<String,Double> levels) {}
 
+    /** Indicative levels only. Use two distinct earlier swing highs, never targets chosen to pass a ratio. */
+    static CompanyResearch.PlanView breakoutWatch(List<Candle> bars,CompanyResearch.PlanView empty) {
+        int end=bars.size()-1;
+        List<Candle> base=bars.subList(end-20,end);
+        double resistance=base.stream().mapToDouble(Candle::high).max().orElseThrow();
+        double support=base.stream().mapToDouble(Candle::low).min().orElseThrow();
+        var latest=bars.getLast();
+        if(latest.close()<support || support>=resistance) return empty;
+        var peaks=new TreeSet<Double>();
+        for(int i=2;i<end-21;i++) {
+            double high=bars.get(i).high();
+            if(high>resistance && high>bars.get(i-2).high() && high>bars.get(i-1).high()
+                    && high>bars.get(i+1).high() && high>bars.get(i+2).high()) peaks.add(high);
+        }
+        Double first=peaks.pollFirst(),second=peaks.pollFirst();
+        return new CompanyResearch.PlanView(resistance,resistance,support,first,second,
+                first==null?null:first-resistance,null,resistance-support,null,null,null,
+                "Watch a close above the prior 20-session high at ₹"+resistance+" with at least 1.5× normal volume. Verify a live entry and costs.",
+                "A break of the prior 20-session low invalidates this watch setup. Targets are earlier confirmed swing highs.",empty.timeExit());
+    }
+
     static Series series(List<Candle> bars, EquityResearchController.Research archive){
         var daily=new ArrayList<Point>();
         if (bars.isEmpty()) {
-            if (archive!=null) for (var p:archive.dailyPrices())
-                daily.add(new Point(p.session(),p.open(),p.high(),p.low(),p.close(),p.volume(),null,null,null,null));
+            if (archive!=null && !archive.dailyPrices().isEmpty()) {
+                double ema9=archive.dailyPrices().getFirst().close(),ema20=ema9;
+                for (var p:archive.dailyPrices()) {
+                    ema9+=(p.close()-ema9)*2/10;
+                    ema20+=(p.close()-ema20)*2/21;
+                    int count=daily.size()+1;
+                    daily.add(new Point(p.session(),p.open(),p.high(),p.low(),p.close(),p.volume(),
+                            count>=9 ? ema9 : null,count>=20 ? ema20 : null,null,null));
+                }
+            }
             return new Series("Unadjusted exchange archive",daily,List.of(),Map.of());
         }
         var weeks=new ArrayList<Week>();
@@ -40,6 +69,7 @@ final class ResearchChart {
         for(int window:List.of(20,60)) {
             // Prior completed sessions exclude the current close when testing a breakout.
             var prior=bars.subList(bars.size()-window-1,bars.size()-1);
+            levels.put("Prior "+window+"-session mean volume",prior.stream().mapToDouble(Candle::volume).average().orElseThrow());
             levels.put("Prior "+window+"-session resistance",prior.stream().mapToDouble(Candle::high).max().orElseThrow());
             levels.put("Prior "+window+"-session support",prior.stream().mapToDouble(Candle::low).min().orElseThrow());
         }

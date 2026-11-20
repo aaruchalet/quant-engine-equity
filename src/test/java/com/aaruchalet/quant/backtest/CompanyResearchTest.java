@@ -25,7 +25,7 @@ class CompanyResearchTest {
     }
     private Evidence fact(OffsetDateTime at) {return new Evidence("https://example.org/filing",at,"Test filing",null,true);}
     private Inputs input(Position position,Double stop) {return new Inputs(config,position,null,null,stop,null);}
-    private Report run(Position pos,Double stop) {
+    private CompanyResearch.Report run(Position pos,Double stop) {
         var bars=new ArrayList<Candle>();
         var last=asOf.toLocalDate().minusDays(1);
         for(int i=0;i<250;i++) {

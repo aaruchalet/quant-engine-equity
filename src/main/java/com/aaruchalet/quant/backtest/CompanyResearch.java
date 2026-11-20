@@ -32,9 +32,9 @@ final class CompanyResearch {
     record PlanView(Double entryLow, Double entry, Double stop, Double target1, Double target2,
                     Double grossGain, Double netGain, Double grossLoss, Double netLoss,
                     Double netRewardRisk, Long units, String trigger, String invalidation, String timeExit) {}
-    record Report(String id, OffsetDateTime evaluatedAt, String isin, String exchange, String symbol, String company,
+    record Report(String id, OffsetDateTime evaluatedAt, Double evaluatedPrice, OffsetDateTime priceAsOf, String isin, String exchange, String symbol, String company,
                   LocalDate dataAsOf, Quality dataStatus, Inputs inputs, Action verdict, Integer score,
-                  List<Category> categories, List<String> exclusions, List<String> missingFields,
+                  List<Category> categories, Map<String,Integer> pointsByTest, List<String> exclusions, List<String> missingFields,
                   List<Finding> findings, Map<String,Double> indicators, PlanView tradePlan,
                   EquityResearchController.Research market, ResearchChart.Series chart, String regime,
                   String classification, String classificationSource, List<ExchangeNews.Item> announcements,
@@ -102,6 +102,7 @@ final class CompanyResearch {
                 && snapshotCurrent && priceCurrent && barsCurrent && !archiveFallback;
         var indicators = adjusted ? new TreeMap<>(result.indicator_values()) : new TreeMap<String,Double>();
         var categories = new ArrayList<Category>();
+        var pointsByTest = new LinkedHashMap<String,Integer>();
         for (var category : RUBRIC) {
             Integer points = null;
             if (result != null) {
@@ -109,16 +110,25 @@ final class CompanyResearch {
                 for (String test : category.tests) {
                     boolean supported = FILED_TESTS.contains(test) ? verifiedFinding(findings,test,true)
                             : snapshotCurrent && (test.endsWith("Turnover") || barsCurrent && adjusted);
-                    if (supported) points += result.score_breakdown().getOrDefault(test,0);
+                    if (supported && !result.missing_data().contains(test)) {
+                        int earned = result.score_breakdown().getOrDefault(test,0);
+                        points += earned;
+                        pointsByTest.put(test,earned);
+                    }
                 }
             }
-            else if (category.name.equals("Volume and liquidity") && archiveCurrent && market.averageTradedValueCr()!=null)
+            else if (category.name.equals("Volume and liquidity") && archiveCurrent && market.averageTradedValueCr()!=null) {
                 points = turnoverPoints(market.averageTradedValueCr());
+                pointsByTest.put("minimumTurnover",points>=5 ? 5 : 0);
+                pointsByTest.put("preferredTurnover",points==10 ? 5 : 0);
+            }
             categories.add(new Category(category.name,points,category.maximum,category.tests));
         }
         Integer score = stock == null || !adjusted || !verifiedFinding(findings,"financials",true) ? null : categories.stream().mapToInt(Category::points).sum();
         var plan = plan(inputs, stock, result, price, priceCurrent && barsCurrent && !archiveFallback
                 && verifiedFinding(findings,"fees",true) && verifiedFinding(findings,"depth",true));
+        if (plan.entry()==null && barsCurrent && !archiveFallback && inputs.positionStatus!=Position.HELD)
+            plan=ResearchChart.breakoutWatch(bars,plan);
         var flags = stock == null || stock.gates()==null ? Map.<String,Boolean>of() : stock.gates();
         boolean restricted = snapshotCurrent && !archiveFallback && Boolean.FALSE.equals(flags.get("surveillanceClear")) && verifiedFinding(findings,"surveillance",true);
         boolean adverse = snapshotCurrent && !archiveFallback && (Boolean.FALSE.equals(flags.get("reportingClear")) && verifiedFinding(findings,"financials",true)
@@ -165,9 +175,9 @@ final class CompanyResearch {
                 ? Quality.STALE : result!=null && missing.isEmpty() ? Quality.VERIFIED : market!=null && market.observedSessions()>=20 ? Quality.PRELIMINARY : Quality.INSUFFICIENT;
         String symbol = market!=null ? market.symbol() : stock!=null ? stock.symbol() : null;
         String company = stock!=null && stock.company()!=null ? stock.company() : market==null ? null : market.company();
-        return new Report(UUID.randomUUID().toString(),now,isin,exchange,symbol,company,
+        return new Report(UUID.randomUUID().toString(),now,price,priceCurrent ? stock.evidence().get("price").asOf() : null,isin,exchange,symbol,company,
                 priceCurrent ? stock.evidence().get("price").asOf().atZoneSameInstant(IST).toLocalDate() : market==null ? null : market.asOf(),
-                quality,inputs,verdict,score,categories,List.copyOf(exclusions),List.copyOf(missing),findings,indicators,plan,
+                quality,inputs,verdict,score,categories,pointsByTest,List.copyOf(exclusions),List.copyOf(missing),findings,indicators,plan,
                 market,ResearchChart.series(bars,market),snapshot==null ? "UNKNOWN" : snapshot.regime(),classification,
                 classificationSource,news,warnings,today.plusDays(1));
     }
