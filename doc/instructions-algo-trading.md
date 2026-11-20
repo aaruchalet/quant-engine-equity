@@ -60,27 +60,53 @@ Never repeat a signal on every bar just because a condition stays true: use fals
 Optional rule-based **confluence score** (not a calibrated probability): EMA **25**, VWAP **20**, RSI **15**, Volume **20**, Pivot **20** = 100 total. Suggested candidate threshold 65, strong candidate threshold 80; configurable. Display satisfied and failed conditions, entry reference, stop, target, R:R, signal timestamp and WAIT/NO TRADE when blocked. A score never overrides mandatory risk gates.
 
 
-## 3A. V2: EMA/RSI first, VWAP side as final entry gate (clarified 2026-11-20)
+## 3A. V2 entry, exit and fee rules
 
-**Implementation status:** The isolated `quant-engine-test` research engine now has a dedicated V2 implementation and `POST /api/backtests/vwap-ema-v2`, separate from V1. The V2 UI option imports `config/strategy-vwap-ema.example.yml` in the test repository. Valid V2 15:00 bar-open history must still be exported separately; do not report a real six-month V2 result until run against the actual upgraded dataset. The parent `quant-engine` must not start live orders from configuration alone. Preserve the legacy `/api/backtests/ema-vwap-rsi` route and historical results as V1.
+The research dashboard calls `POST /api/backtests/vwap-ema-v2`. Each request reads the [research strategy YAML](https://github.com/aaruchalet/quant-engine-test/blob/main/config/strategy-vwap-ema.example.yml) into an immutable configuration for that run. Set `V2_STRATEGY_CONFIG_PATH` at startup to select a different file. Missing required settings, unknown keys and unsupported combinations reject the request. The parent repository carries a reference configuration. The research service owns the executable V2 strategy.
 
-**Final VWAP side:** After the configured current-session EMA crossover, RSI, clock and risk checks, a completed candle must CLOSE strictly above session VWAP for LONG, or strictly below it for SHORT. Touching or bouncing from VWAP is optional and is not separately scored. At the next candle OPEN, recheck against the last confirmed VWAP and cancel if it is on the wrong side or equal. Never use a future close. Shorts are research-only and require instrument/product validation before any future live use.
+### Entry
 
-**OHLC note:** Candle OHLC cannot establish the chronological order of intrabar touches. The entry rule uses the completed close and next open; VWAP uses HLC3 and traded volume from the configured market open.
+The table uses the shipped YAML defaults. EMA periods and RSI thresholds come from the selected file.
 
-**EMA:** Fast 9/slow 20, confirmed crossover uses *previous versus current* completed EMA samples, held active on that session's side until an opposite crossover; its crossover must occur no later than the VWAP confirming bar. The crossover check precedes the VWAP check. Prevent duplicate entries on the same qualifying signal.
+| Check | Long | Short |
+| --- | --- | --- |
+| Current-session EMA crossover | EMA 9 has crossed above EMA 20 and remains above | EMA 9 has crossed below EMA 20 and remains below |
+| Wilder RSI on the completed candle | RSI(14) > 50 | RSI(14) < 50 |
+| Completed candle close | Strictly above session VWAP | Strictly below session VWAP |
+| Next candle open | Strictly above the last confirmed VWAP | Strictly below the last confirmed VWAP |
 
-**RSI:** Wilder period 14, entry filter enabled. LONG >50; SHORT <50; 50 exactly ineligible. RSI exit enabled=false; proposed short exit above 55 is stored but INACTIVE; longExitBelow=null/unset because the user specified no numerical long-exit threshold. Do not exit simply because entry RSI is later lost.
+A candle wholly above VWAP can qualify for a long, and one wholly below can qualify for a short. A wick touching VWAP is optional and carries no extra score. Equality fails either side check. The engine computes session VWAP from HLC3 and traded volume beginning at the configured market open. Daily limits, entry hours, available capital and position limits also apply.
 
-**Exits:** Stop loss enabled, mode PERCENT, value **1.0% of execution price**. Take profit enabled, mode PERCENT, value **2.0% of execution price**. Exit on loss of composite entry predicates is FALSE, and optional confirmed VWAP invalidation or EMA reversal require their own toggles/reasons. Conservative stop-first on stop+target collision, realistic adverse slippage and gaps.
+### Exits and session data
 
-**Other V2 configuration:** Default quantity 1, maximum 10, max concurrent positions 1; max 5 new trades/day; daily realized loss limit ₹5,000 and daily realized profit limit ₹10,000 (block new entries); closePositionOnDailyLoss=false. Timezone Asia/Kolkata, market/VWAP open 09:15, strategy calculation start 09:20, first actual entry at 09:30, last entry 14:45 (configurable), square-off 15:00, normal NSE cash market close 15:30. Carry-over false and incompatible with INTRADAY product. Trading mode PAPER by default, order MARKET / product INTRADAY / validity DAY; level INFO logging. Parent LIVE requires separate explicit operator approval and the complete safety controls; config alone MUST NOT enable orders.
+The shipped V2 YAML sets a 1% stop and 2% target from the simulated fill price. A stop and target reached within the same candle default to the stop when the intrabar sequence is unknown. Scheduled square-off uses the actual opening price at the configured time (15:00 IST by default). The CSV must contain that bar and at least one complete session within the requested dates. Earlier sessions can warm up indicators.
 
-**Data coverage constraint:** The old NIFTYBEES CSV ends at 14:55 OPEN and V1 exits at 14:55. To backtest V2 square-off **15:00 OPEN**, obtain genuine 15:00 opening candle data and require that timestamp for every V2-traded session. Do not infer 15:00 OPEN from 14:55 CLOSE or make up prices. Keep V1 results reproducible.
+| Report label | Trigger |
+| --- | --- |
+| `STOP_LOSS`, `TARGET`, `SQUARE_OFF` | Price reaches the configured stop or target, or the position reaches the square-off time. |
+| `VWAP_INVALIDATION` | When enabled, a completed candle closes below VWAP for a long or above VWAP for a short. Exit at the next open. |
+| `EMA_REVERSAL` | When enabled, an opposite EMA crossover triggers an exit at the next open. |
+| `TREND_REVERSAL` (legacy V1) | Any part of the combined entry condition fails. For example, RSI can leave the entry range while EMA alignment still holds. |
 
-**Config contract:** V2 reads `config/strategy-vwap-ema.example.yml` directly on each request; `V2_STRATEGY_CONFIG_PATH` can choose another file at startup. Missing, unknown and unsupported settings are rejected. The example values are configurable; unsupported timeframe, scope, mode and filter combinations are rejected. Logging is initialized by Spring at startup. The legacy V1 endpoint remains independent. In parent `quant-engine`, the example is reference-only and is NOT activated. Keep immutable per-run config snapshots and do not treat a file setting as authorization for actual orders.
+Both optional V2 exits default to false. If both trigger on the same close, V2 records VWAP invalidation. Scheduled square-off takes precedence at the square-off open. Losing the entry RSI condition alone does not close a V2 trade.
 
-**Acceptance tests:** Above/below VWAP entries work without touches after EMA crossover and RSI; touch remains allowed; equality and wrong-side prices are rejected; the next-open check, YAML values and validation, real square-off candle, risk caps and no-lookahead behavior remain covered.
+### Angel One fees and net P&L
+
+V2 applies the `trading.fees` schedule to each executed order. Long entry and short exit are buys. Short entry and long exit are sells. The defaults below estimate NSE equity intraday charges.
+
+| Charge | Default in YAML | Applies to |
+| --- | --- | --- |
+| Brokerage | 0.1% of order value, ₹5 minimum and ₹20 maximum | Each executed order |
+| Exchange transaction fee | 0.0030699% | Buy and sell turnover |
+| Investor Protection Fund Trust | 0.0000001% | Buy and sell turnover |
+| SEBI turnover fee | 0.0001% | Buy and sell turnover |
+| Stamp duty | 0.003% | Buy turnover |
+| Securities transaction tax | 0.025% | Sell turnover |
+| GST | 18% | Brokerage, exchange, investor protection and SEBI fees |
+
+Net trade P&L deducts estimated charges on both legs from gross P&L. Capital and slippage are per-run inputs. V2 rejects the V1 request fields `feeBps` and `feePerOrder`. A run applies one YAML fee schedule across its date range. Historical rate changes, account-specific tariffs, small-order regulatory caps and contract-note rounding can affect actual charges. [Angel One pricing](https://www.angelone.in/exchange-transaction-charges) · [NSE transaction-charge circular](https://nsearchives.nseindia.com/content/circulars/FA73061.pdf)
+
+The research service validates the supported PAPER, five-minute, current-session EMA crossover and HLC3 VWAP configuration. Sections 4 and 5 list the shipped session and risk defaults. [V2 regression tests](https://github.com/aaruchalet/quant-engine-test/blob/main/src/test/java/com/aaruchalet/quant/backtest/VwapEmaV2Test.java)
 
 ## 4. Mandatory configurable intraday schedule (Asia/Kolkata)
 
