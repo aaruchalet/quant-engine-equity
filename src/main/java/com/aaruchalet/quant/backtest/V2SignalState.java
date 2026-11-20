@@ -11,7 +11,12 @@ final class V2SignalState {
     private IndicatorState.Snapshot previous;
     private Side cross;
 
-    record Decision(Double vwap, Side cross, Side entry, boolean ready) {
+    record Decision(Double vwap, Side cross, Side entry, boolean ready,
+                    Double emaFast, Double emaSlow, Double rsi, String reason) {
+        // Keep test fixtures and older integrations source-compatible.
+        Decision(Double vwap, Side cross, Side entry, boolean ready) {
+            this(vwap, cross, entry, ready, null, null, null, "UNSPECIFIED");
+        }
         boolean permitsOpen(double price) {
             return entry != null && (entry == Side.LONG ? price > vwap : price < vwap);
         }
@@ -33,7 +38,7 @@ final class V2SignalState {
             previous = null;
         }
         var now = indicators.add(priceBar, bar);
-        if (!now.ready()) return new Decision(null, null, null, false);
+        if (!now.ready()) return new Decision(null, null, null, false, null, null, null, "INDICATORS_WARMING");
         if (previous != null) {
             if (previous.emaFast() <= previous.emaSlow() && now.emaFast() > now.emaSlow()) cross = Side.LONG;
             if (previous.emaFast() >= previous.emaSlow() && now.emaFast() < now.emaSlow()) cross = Side.SHORT;
@@ -43,6 +48,10 @@ final class V2SignalState {
         boolean qualifies = cross == Side.LONG && now.rsi() > config.longRsiAbove()
                 || cross == Side.SHORT && config.shortsEnabled() && now.rsi() < config.shortRsiBelow();
         Side entry = qualifies && BacktestEngineV2.confirmsVwapSide(bar, now.vwap(), cross) ? cross : null;
-        return new Decision(now.vwap(), cross, entry, true);
+        String reason = cross == null ? "WAIT_EMA_CROSSOVER"
+                : !qualifies ? "WAIT_RSI_CONFIRMATION"
+                : entry == null ? "WAIT_VWAP_SIDE" : "ENTRY_SETUP_CONFIRMED";
+        return new Decision(now.vwap(), cross, entry, true,
+                now.emaFast(), now.emaSlow(), now.rsi(), reason);
     }
 }
