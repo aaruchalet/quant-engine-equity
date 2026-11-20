@@ -46,9 +46,7 @@ public class EquityScreen {
     public Report screen(@RequestBody Request request) {
         Config c = request.config;
         Snapshot s = request.snapshot;
-        if (c == null || !positive(c.minPrice) || !positive(c.maxPrice) || c.minPrice >= c.maxPrice
-                || c.minSessions < 1 || c.maxSessions < c.minSessions || c.capital != null && !positive(c.capital) || c.availableCash != null && !nonnegative(c.availableCash))
-            throw invalid("Check the price band, holding range and capital.");
+        validateConfig(c);
         if (s == null || s.asOf == null || s.asOf.toInstant().isAfter(clock.instant()) || s.stocks == null)
             throw invalid("Supply a dated snapshot with a stocks array.");
         if (!Set.of("BULLISH","NEUTRAL","BEARISH","HIGH_VOLATILITY","UNKNOWN").contains(Objects.toString(s.regime,"")))
@@ -160,6 +158,12 @@ public class EquityScreen {
                 missing.isEmpty() ? "Evidence supplied" : "Incomplete",p == null ? null : p.invalidation,rr2,breakdown,
                 p == null ? null : p.triggerCondition,triggerStatus,p == null ? null : p.triggerExpiresAt,s.tradedValue20Cr,
                 "Count entry as session 1. Exit by close of session " + c.maxSessions + " or earlier on stop, target or invalidation.");
+    }
+
+    static void validateConfig(Config c) {
+        if (c == null || !positive(c.minPrice) || !positive(c.maxPrice) || c.minPrice >= c.maxPrice
+                || c.minSessions < 1 || c.maxSessions < c.minSessions || c.capital != null && !positive(c.capital) || c.availableCash != null && !nonnegative(c.availableCash))
+            throw invalid("Check the price band, holding range and capital.");
     }
 
     private static boolean complete(Plan p) {

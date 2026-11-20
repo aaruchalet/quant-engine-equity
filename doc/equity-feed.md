@@ -31,12 +31,8 @@ Each sourced passing test earns five points. Missing critical evidence prevents 
 
 Capital and availableCash are optional runtime inputs. Without capital, position size is null. Without availableCash, a computed size is provisional. The default risk budget is 0.5% of capital including estimated fees at the stop. Allocation including entry fees is capped at 10%. Depth, cash and whole-share limits also apply.
 
-## Web discovery
+## Automatic discovery
 
-From the checkout, run the following with an authenticated Codex CLI and web search access:
+Start the Spring Boot application, open the Equity tab and press **Scan equities**. The server loads the AMFI classification workbook and official NSE and BSE end-of-day files. It joins by ISIN, applies the configured price band, and calculates average traded value from 20 exchange sessions. A dual listing appears once. The scan selects the newer closing date and then the listing with higher verified turnover. The JSON report includes closing dates, source links, coverage counts and any gaps.
 
-```sh
-./scripts/research-small-caps.sh > small-cap-report.md
-```
-
-This runs the full research prompt with its three configured settings and writes a dated research report with its structured result. It requires no symbols or snapshot. The Equity tab separately evaluates structured provider snapshots. Its input contract includes raw adjusted candles, so a final research report alone cannot be imported as a provider snapshot.
+The application needs outbound HTTPS access to AMFI and the two exchanges. It uses no account or API key. Public archives cover basic discovery. The full entry, risk and score calculation uses the verified research evidence described above. See `POST /api/equity/discover` for the same discovery output as JSON. This endpoint and the Equity tab perform discovery without the optional Codex research script.

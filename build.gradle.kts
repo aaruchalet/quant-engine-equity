@@ -17,6 +17,9 @@ java {
 repositories { mavenCentral() }
 
 dependencies {
+    implementation("org.apache.poi:poi-ooxml:5.4.1")
+    implementation("org.apache.commons:commons-csv:1.14.1")
+    implementation("org.jsoup:jsoup:1.21.2")
     // Versions and BOM are deliberately aligned with quant-engine/develop.
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
