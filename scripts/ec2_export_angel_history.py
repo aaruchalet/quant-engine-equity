@@ -28,6 +28,12 @@ REGISTERED_EGRESS = frozenset({'13.202.233.29'})
 MASTER_URL = 'https://margincalculator.angelone.in/OpenAPI_File/files/OpenAPIScripMaster.json'
 CANDLE_URL = 'https://apiconnect.angelone.in/rest/secure/angelbroking/historical/v1/getCandleData'
 BAR_TIMES = tuple((dt.datetime(2026, 1, 1, 9, 15) + dt.timedelta(minutes=5*i)).time() for i in range(69))
+# The strategy squares off at the 14:55 candle OPEN; Angel One may still
+# return later regular NSE session candles (15:00 through 15:25).
+EXTRA_SESSION_TIMES = tuple(
+    (dt.datetime(2026, 1, 1, 15, 0) + dt.timedelta(minutes=5*i)).time()
+    for i in range(6)
+)
 ALLOWED_CONFIG = ('ANGEL_ONE_API_KEY', 'ANGEL_ONE_LOCAL_IP', 'ANGEL_ONE_CLIENT_LOCAL_IP',
                   'ANGEL_ONE_PUBLIC_IP', 'ANGEL_ONE_CLIENT_PUBLIC_IP', 'ANGEL_ONE_MAC_ADDRESS',
                   'ANGEL_ONE_SYMBOL_TOKEN', 'ANGEL_ONE_JWT_TOKEN')
@@ -179,7 +185,7 @@ def validate_row(row: list[object]) -> tuple[dt.datetime, tuple[str, ...]]:
     try:
         stamp = parse_timestamp(str(row[0]))
         if stamp.time() not in BAR_TIMES:
-            raise DownloadError('Vendor returned invalid session-time or misaligned 5-minute candle')
+            raise DownloadError(f'Vendor returned unexpected candle at {stamp:%H:%M:%S} IST; expected a 5-minute candle from 09:15 to 14:55')
         vals = [float(x) for x in row[1:6]]
         if any(not (float('-inf') < v < float('inf')) for v in vals):
             raise ValueError('non-finite OHLCV')
@@ -193,7 +199,7 @@ def validate_row(row: list[object]) -> tuple[dt.datetime, tuple[str, ...]]:
 
 def fetch_batch(token: str, headers: dict[str, str], start: dt.date, through: dt.date) -> list[list[object]]:
     payload = json.dumps({'exchange':'NSE','symboltoken':token,'interval':'FIVE_MINUTE',
-                          'fromdate':f'{start:%Y-%m-%d} 09:15','todate':f'{through:%Y-%m-%d} 15:25'})
+                          'fromdate':f'{start:%Y-%m-%d} 09:15','todate':f'{through:%Y-%m-%d} 14:55'})
     req = urllib.request.Request(CANDLE_URL, data=payload.encode('utf-8'), headers=headers, method='POST')
     try:
         with urllib.request.urlopen(req, timeout=35) as response:
@@ -220,13 +226,27 @@ def collect_history(start: dt.date, through: dt.date, token: str, headers: dict[
         if iteration:
             time.sleep(pause)
         iteration += 1
+        ignored_late = 0
         for row in fetcher(token, headers, cursor, end):
+            # Skip only known, correctly aligned post-14:55 NSE session times.
+            # Preserve strict timestamp/OHLCV validation for every retained bar.
+            if not isinstance(row, list) or len(row) < 6:
+                raise DownloadError('Vendor returned malformed OHLCV row')
+            try:
+                row_timestamp = parse_timestamp(str(row[0]))
+            except (ValueError, TypeError, OverflowError) as exc:
+                raise DownloadError('Vendor returned invalid candle timestamp') from exc
+            if row_timestamp.time() in EXTRA_SESSION_TIMES:
+                ignored_late += 1
+                continue
             stamp, values = validate_row(row)
             if cursor <= stamp.date() <= end:
                 if stamp in candles and candles[stamp] != values:
                     raise DownloadError('Conflicting duplicate historical candle')
                 candles[stamp] = values
-        print(f'Fetched window {iteration}: {cursor} to {end}', file=sys.stderr)
+        print(f'Fetched window {iteration}: {cursor} to {end}' +
+              (f' (ignored {ignored_late} post-14:55 NSE candles)' if ignored_late else ''),
+              file=sys.stderr)
         cursor = end + dt.timedelta(days=1)
     return candles
 
