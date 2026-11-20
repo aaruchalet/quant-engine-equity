@@ -45,7 +45,9 @@ final class EquityHistory {
                     else adx += (dx-adx)/14;
                 }
             }
+            if (i == bars.size()-6) out.put("ema20FiveAgo",a.emaSlow());
             if (i == bars.size()-1) {
+                out.put("close",b.close());
                 out.put("ema9",a.emaFast()); out.put("ema20",a.emaSlow()); out.put("ema50",slow.emaSlow());
                 out.put("rsi14",a.rsi()); out.put("sma200",sum200/200); out.put("macdSignal",macdSignal);
                 out.put("atr14",tr/14); out.put("adx14",adx); out.put("obv",obv);
