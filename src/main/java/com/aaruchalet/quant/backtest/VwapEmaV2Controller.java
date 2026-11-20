@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import org.springframework.core.io.Resource;
 import java.util.Map;
 
 /** Isolated V2 simulation. NEVER sends broker orders and LIVE mode is rejected. */
@@ -15,7 +16,7 @@ import java.util.Map;
 public class VwapEmaV2Controller {
     private final Path csv;
     private final String symbol;
-    private final Path strategyConfig;
+    private final Resource strategyConfig;
 
     public VwapEmaV2Controller(
             @Value("${trading.history.csv-path}") String csvPath,
@@ -23,7 +24,7 @@ public class VwapEmaV2Controller {
             @Value("${trading.strategy.v2-config-path}") String strategyConfigPath) {
         this.csv = Path.of(csvPath);
         this.symbol = historySymbol;
-        this.strategyConfig = Path.of(strategyConfigPath);
+        this.strategyConfig = SettingsResource.resolve(strategyConfigPath);
     }
 
     @PostMapping("/vwap-ema-v2")

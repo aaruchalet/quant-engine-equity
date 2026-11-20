@@ -23,12 +23,16 @@ final class V2SignalState {
     }
 
     Decision onClose(Candle bar) {
+        return onClose(bar, bar);
+    }
+
+    Decision onClose(Candle priceBar, Candle bar) {
         if (!bar.openTime().toLocalDate().equals(session)) {
             session = bar.openTime().toLocalDate();
             cross = null;
             previous = null;
         }
-        var now = indicators.add(bar);
+        var now = indicators.add(priceBar, bar);
         if (!now.ready()) return new Decision(null, null, null, false);
         if (previous != null) {
             if (previous.emaFast() <= previous.emaSlow() && now.emaFast() > now.emaSlow()) cross = Side.LONG;

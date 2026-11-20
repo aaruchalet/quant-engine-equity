@@ -312,3 +312,42 @@
   $("downloadCsv").addEventListener("click", downloadTrades);
   checkHistory();
 })();
+
+// Market-mode controls are deliberately absent from HTTP; the runner reads trusted startup YAML.
+async function refreshRuntime() {
+  const badge = document.getElementById("runtimeMode");
+  const panel = document.getElementById("runtimeStatus");
+  try {
+    const response = await fetch("/api/trading/status", {cache: "no-store"});
+    if (!response.ok) throw new Error();
+    const s = await response.json();
+    badge.textContent = s.mode;
+    panel.textContent = s.mode === "BACKTEST" ? "Historical simulation" :
+      [s.status, "Daily entry spend ₹" + (s.spent ?? 0) + " / ₹" + s.dailyBudget,
+       s.contract?.instrument?.symbol, "Open quantity " + s.quantity,
+       s.pending && "Working order " + s.pending].filter(Boolean).join(" · ");
+    document.getElementById("runtimeEvents").textContent = (s.events ?? [])
+      .map(e => e.time + "  " + e.event).join("\n");
+  } catch {
+    badge.textContent = "Status unavailable";
+    panel.textContent = "Unable to verify trading mode or broker order state.";
+  }
+}
+refreshRuntime();
+setInterval(refreshRuntime, 5000);
+
+document.getElementById("optionReplay").addEventListener("submit", async event => {
+  event.preventDefault();
+  const result = document.getElementById("optionResult");
+  const file = document.getElementById("optionRequest").files[0];
+  if (!file) return;
+  result.textContent = "Replaying options…";
+  try {
+    const r = await fetch("/api/backtests/vwap-ema-v2/options", {
+      method: "POST", headers: {"Content-Type":"application/json"}, body: file
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || "Options replay failed");
+    result.textContent = JSON.stringify(data, null, 2);
+  } catch (e) { result.textContent = e.message; }
+});

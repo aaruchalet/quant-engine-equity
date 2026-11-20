@@ -20,6 +20,7 @@ dependencies {
     // Versions and BOM are deliberately aligned with quant-engine/develop.
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    runtimeOnly("com.h2database:h2")
     implementation("org.springframework.boot:spring-boot-starter-jackson")
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
     testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")

@@ -62,7 +62,7 @@ Optional rule-based **confluence score** (not a calibrated probability): EMA **2
 
 ## 3A. V2 entry, exit and fee rules
 
-The research dashboard calls `POST /api/backtests/vwap-ema-v2`. Each request reads the [research strategy YAML](https://github.com/aaruchalet/quant-engine-test/blob/main/config/strategy-vwap-ema.example.yml) into an immutable configuration for that run. Set `V2_STRATEGY_CONFIG_PATH` at startup to select a different file. Missing required settings, unknown keys and unsupported combinations reject the request. The parent repository carries a reference configuration. The research service owns the executable V2 strategy.
+The research dashboard calls `POST /api/backtests/vwap-ema-v2`. Each request reads the [research strategy YAML](https://github.com/aaruchalet/quant-engine-test/blob/main/src/main/resources/strategy-vwap-ema.example.yml) into an immutable configuration for that run. Set `V2_STRATEGY_CONFIG_PATH` at startup to select a different file. Missing required settings, unknown keys and unsupported combinations reject the request. The parent repository carries a reference configuration. The research service owns the executable V2 strategy.
 
 ### Entry
 
@@ -121,7 +121,7 @@ Use `POST /api/backtests/vwap-ema-v2/options` in the research service. The compl
 | `signalSymbols` | NIFTYBEES, SENSEXETF | Traded-volume proxies for the two indices |
 | `fees` | Angel One Plus equity options | Per-order brokerage, venue-specific exchange/IPFT estimates, SEBI, buy stamp duty, sell STT and GST |
 
-Edit `config/index-options.yml` or select a file with `OPTIONS_CONFIG_PATH`. Keep NIFTY at **65 units per lot** and SENSEX at **20** in code. Reject snapshots whose contract lot differs. The closest strike to spot wins, with ties resolved toward the lower strike. Offsets count listed strikes in the supplied expiry. Skip when the chosen strike, adequate depth, or one affordable lot is unavailable. A cheaper put premium is possible and depends on the actual ask.
+Edit `src/main/resources/index-options.yml` or select a file with `OPTIONS_CONFIG_PATH`. Keep NIFTY at **65 units per lot** and SENSEX at **20** in code. Reject snapshots whose contract lot differs. The closest strike to spot wins, with ties resolved toward the lower strike. Offsets count listed strikes in the supplied expiry. Skip when the chosen strike, adequate depth, or one affordable lot is unavailable. A cheaper put premium is possible and depends on the actual ask.
 
 One replay shares a single open position and daily ledger across both markets. NIFTY has priority for simultaneous eligible entries. Closing proceeds and profits do not replenish the day's entry allowance. A new IST session resets it. Exit fees come out of sale proceeds. Separate API requests are independent backtests. The existing V2 strategy YAML supplies the premium stop and target percentages, trading hours, optional exits and daily trade/P&L limits. Buy at the ask and sell at the observed bid. Evaluate the spread on entry and subsequent five-minute snapshots, including the square-off. A bid through the stop can realize a larger loss. These snapshots cannot resolve a stop touched and recovered between observations.
 

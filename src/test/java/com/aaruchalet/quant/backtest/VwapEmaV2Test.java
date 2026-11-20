@@ -141,7 +141,7 @@ class VwapEmaV2Test {
 
     @Test
     void rejectLiveModeAndOvernightIntraday() {
-        assertThrows(IllegalArgumentException.class,()->configWith("mode: PAPER", "mode: LIVE"));
+        assertThrows(IllegalArgumentException.class,()->configWith("trading:", "trading:\n  mode: LIVE"));
         assertThrows(IllegalArgumentException.class,()->configWith("enabled: false              # true + INTRADAY", "enabled: true              # true + INTRADAY"));
     }
 
@@ -208,7 +208,7 @@ class VwapEmaV2Test {
                 data.append(c.openTime()).append(',').append(c.open()).append(',').append(c.high())
                         .append(',').append(c.low()).append(',').append(c.close()).append(',').append(c.volume()).append('\n');
             Files.writeString(csv,data.toString());
-            String settings=Files.readString(Path.of("config/strategy-vwap-ema.example.yml"));
+            String settings=Files.readString(Path.of("src/main/resources/strategy-vwap-ema.example.yml"));
             Files.writeString(yaml,settings);
             var controller=new VwapEmaV2Controller(csv.toString(),"NIFTYBEES",yaml.toString());
             assertEquals(1,controller.run(request()).trades().getFirst().quantity());
@@ -268,13 +268,13 @@ class VwapEmaV2Test {
     }
 
     private VwapEmaV2Config config() {
-        try { return VwapEmaV2Config.fromYaml(Path.of("config/strategy-vwap-ema.example.yml")); }
+        try { return VwapEmaV2Config.fromYaml(Path.of("src/main/resources/strategy-vwap-ema.example.yml")); }
         catch (IOException e) { throw new UncheckedIOException(e); }
     }
 
     private VwapEmaV2Config configWith(String... replacements) {
         try {
-            String yaml=Files.readString(Path.of("config/strategy-vwap-ema.example.yml"));
+            String yaml=Files.readString(Path.of("src/main/resources/strategy-vwap-ema.example.yml"));
             for (int i=0; i<replacements.length; i+=2) {
                 if (!yaml.contains(replacements[i])) throw new IllegalArgumentException("Missing test fixture: "+replacements[i]);
                 yaml=yaml.replace(replacements[i],replacements[i+1]);

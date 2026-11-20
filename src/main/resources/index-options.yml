@@ -1,7 +1,10 @@
 # Each options replay uses one shared INR entry budget per IST session.
 dailyBudgetInr: 15000
-maximumLots: 2
+maximumLots: APPLICATION  # Or a positive integer for an additional cap
 signalSymbols:
+  nifty: NIFTY 50
+  sensex: BSE SENSEX
+vwapSymbols:
   nifty: NIFTYBEES
   sensex: SENSEXETF
 # Signed number of listed strikes from the closest strike. Lower strike wins ATM ties.

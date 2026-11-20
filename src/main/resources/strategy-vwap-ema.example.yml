@@ -1,14 +1,8 @@
-# PAPER-ONLY V2 defaults imported by quant-engine-test/application.yml when run from project root.
-# Parent quant-engine does NOT import this reference. Changing YAML cannot enable broker orders.
-# V2 loads and validates this file on each backtest request.
-# Mode LIVE is NOT permission to place orders; quant-engine-test never places orders.
-# A real 15:00 square-off requires real 15:00 opening-price data, not the current CSV.
+# Shared V2 indicator, session and risk settings. Select runtime mode in application.yml.
 schemaVersion: 2
 strategyId: VWAP_BOUNCE_EMA_V2
 
 trading:
-  mode: PAPER                       # PAPER | LIVE (parent only; separately authorized)
-  automatedExecutionEnabled: false # must NOT be turned on by loading this example
   orders:
     type: MARKET
     productType: INTRADAY

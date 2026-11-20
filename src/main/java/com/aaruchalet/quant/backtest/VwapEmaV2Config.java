@@ -6,6 +6,7 @@ import org.springframework.core.env.MutablePropertySources;
 import org.springframework.core.env.PropertyResolver;
 import org.springframework.core.env.PropertySourcesPropertyResolver;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,7 +19,7 @@ import java.util.Set;
  * This research service must never accept LIVE mode or place broker orders.
  */
 public record VwapEmaV2Config(
-        String strategyId, String mode, String productType, String orderType, String validity,
+        String strategyId, String productType, String orderType, String validity,
         ZoneId zone, LocalTime marketOpen, LocalTime strategyStart, LocalTime entryStart,
         LocalTime lastEntry, LocalTime squareOff, LocalTime marketClose,
         boolean carryOver, int fastEma, int slowEma, int rsiPeriod,
@@ -67,7 +68,11 @@ public record VwapEmaV2Config(
     /** Read this strategy's YAML directly; missing files or settings cannot silently use Java defaults. */
     public static VwapEmaV2Config fromYaml(Path path) throws IOException {
         if (!Files.isRegularFile(path)) throw new IOException("V2 YAML file does not exist: " + path);
-        var sources = new YamlPropertySourceLoader().load("v2Strategy", new FileSystemResource(path));
+        return fromYaml(new FileSystemResource(path));
+    }
+
+    static VwapEmaV2Config fromYaml(Resource resource) throws IOException {
+        var sources = new YamlPropertySourceLoader().load("v2Strategy", resource);
         if (sources.size() != 1 || !(sources.getFirst() instanceof EnumerablePropertySource<?> source))
             throw new IllegalArgumentException("V2 configuration must contain exactly one YAML document");
         for (String name : source.getPropertyNames()) {
@@ -102,7 +107,6 @@ public record VwapEmaV2Config(
             throw new IllegalArgumentException("Unsupported root logging level in V2 YAML");
         VwapEmaV2Config c = new VwapEmaV2Config(
                 get(e,"strategyId"),
-                get(e,"trading.mode"),
                 get(e,"trading.orders.productType"),
                 get(e,"trading.orders.type"),
                 get(e,"trading.orders.validity"),
@@ -167,8 +171,8 @@ public record VwapEmaV2Config(
         return t.getMinute()%5==0 && t.getSecond()==0 && t.getNano()==0;
     }
     private void validate(PropertyResolver e) {
-        if (!mode.equals("PAPER"))
-            throw new IllegalArgumentException("quant-engine-test is read-only: V2 LIVE mode is forbidden");
+        if (!"PAPER".equals(e.getProperty("trading.mode", "PAPER")))
+            throw new IllegalArgumentException("Set trading.mode in application.yml, not in a legacy strategy file");
         if (!orderType.equals("MARKET") || !productType.equals("INTRADAY") || !validity.equals("DAY"))
             throw new IllegalArgumentException("V2 currently supports MARKET/INTRADAY/DAY research assumptions only");
         if (!zone.equals(ZoneId.of("Asia/Kolkata")))
@@ -206,7 +210,7 @@ public record VwapEmaV2Config(
                 || marketOpen.isBefore(LocalTime.of(9,15)) || squareOff.isAfter(LocalTime.of(15,25))
                 || marketClose.isAfter(LocalTime.of(15,30)))
             throw new IllegalArgumentException("V2 invalid 5-minute-aligned trading session schedule");
-        if (bool(e,"trading.automatedExecutionEnabled"))
+        if (e.containsProperty("trading.automatedExecutionEnabled") && bool(e,"trading.automatedExecutionEnabled"))
             throw new IllegalArgumentException("V2 test service cannot enable automated order execution");
         if (!"PERCENT".equals(get(e,"trading.risk.stopLoss.mode"))
                 || !"PERCENT".equals(get(e,"trading.risk.takeProfit.mode")))

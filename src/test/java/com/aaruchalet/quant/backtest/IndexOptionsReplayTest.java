@@ -11,8 +11,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class IndexOptionsReplayTest {
     static final LocalDate DATE = LocalDate.of(2026, 11, 19);
-    static final Path OPTIONS = Path.of("config/index-options.yml");
-    static final Path V2 = Path.of("config/strategy-vwap-ema.example.yml");
+    static final Path OPTIONS = Path.of("src/main/resources/index-options.yml");
+    static final Path V2 = Path.of("src/main/resources/strategy-vwap-ema.example.yml");
     @TempDir Path temp;
 
     static BigDecimal n(long x) { return BigDecimal.valueOf(x); }
@@ -63,7 +63,7 @@ class IndexOptionsReplayTest {
 
     @Test void usesEditedYamlAndResetsDailyBudget() throws Exception {
         var file = temp.resolve("options.yml");
-        Files.writeString(file,Files.readString(OPTIONS).replace("15000","10000").replace("maximumLots: 2","maximumLots: 3")
+        Files.writeString(file,Files.readString(OPTIONS).replace("15000","10000").replace("maximumLots: APPLICATION","maximumLots: 3")
                 .replace("putStrikeOffset: -1","putStrikeOffset: 0"));
         var one = new Session(DATE,Map.of(Index.SENSEX,series(Index.SENSEX,false,150,150,DATE)));
         var next = DATE.plusDays(1);
@@ -87,7 +87,7 @@ class IndexOptionsReplayTest {
         assertEquals(65,run(file,data).trades().getFirst().position().quantity());
         Files.writeString(file,yaml.replace("15000",exact.subtract(new BigDecimal("0.01")).toPlainString()));
         assertTrue(run(file,data).trades().isEmpty());
-        Files.writeString(file,yaml.replace("maximumLots: 2","maximumLots: 1.5"));
+        Files.writeString(file,yaml.replace("maximumLots: APPLICATION","maximumLots: 1.5"));
         assertThrows(IllegalArgumentException.class,() -> run(file,data));
         Files.writeString(file,yaml + "lotSize: 17\n");
         assertThrows(IllegalArgumentException.class,() -> run(file,data));

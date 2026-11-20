@@ -81,25 +81,11 @@ public final class AngelOneHistoricalClient {
         if (!exchange.matches("[A-Z]{2,5}") || !symbolToken.matches("[0-9]{1,12}"))
             throw new IllegalArgumentException("Invalid exchange or Angel One symbol token");
         if (until.isBefore(from)) throw new IllegalArgumentException("Invalid date range");
-        String bearer = resolveJwt();
-        require(credentials.apiKey(), "ANGEL_ONE_API_KEY");
-        require(credentials.localIp(), "ANGEL_ONE_CLIENT_LOCAL_IP");
-        require(credentials.publicIp(), "ANGEL_ONE_CLIENT_PUBLIC_IP");
-        require(credentials.macAddress(), "ANGEL_ONE_MAC_ADDRESS");
         String requestBody = "{\"exchange\":\"" + exchange + "\",\"symboltoken\":\"" + symbolToken
                 + "\",\"interval\":\"FIVE_MINUTE\",\"fromdate\":\"" + PARAM_TIME.format(from)
                 + "\",\"todate\":\"" + PARAM_TIME.format(until) + "\"}";
         throttle();
-        HttpRequest req = HttpRequest.newBuilder(endpoint).timeout(REQUEST_TIMEOUT)
-                .header("Authorization", "Bearer " + bearer)
-                .header("X-PrivateKey", credentials.apiKey().strip())
-                .header("X-ClientLocalIP", credentials.localIp().strip())
-                .header("X-ClientPublicIP", credentials.publicIp().strip())
-                .header("X-MACAddress", credentials.macAddress().strip())
-                .header("X-UserType", "USER")
-                .header("X-SourceID", "WEB")
-                .header("Content-Type", "application/json")
-                .header("Accept", "application/json")
+        HttpRequest req = authenticated(endpoint)
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody)).build();
         HttpResponse<String> response;
         try {
@@ -148,6 +134,24 @@ public final class AngelOneHistoricalClient {
             }
         }
         return List.copyOf(candles);
+    }
+
+    HttpRequest.Builder authenticated(URI endpoint) throws IOException {
+        String bearer = resolveJwt();
+        require(credentials.apiKey(), "ANGEL_ONE_API_KEY");
+        require(credentials.localIp(), "ANGEL_ONE_CLIENT_LOCAL_IP");
+        require(credentials.publicIp(), "ANGEL_ONE_CLIENT_PUBLIC_IP");
+        require(credentials.macAddress(), "ANGEL_ONE_MAC_ADDRESS");
+        return HttpRequest.newBuilder(endpoint).timeout(REQUEST_TIMEOUT)
+                .header("Authorization", "Bearer " + bearer)
+                .header("X-PrivateKey", credentials.apiKey().strip())
+                .header("X-ClientLocalIP", credentials.localIp().strip())
+                .header("X-ClientPublicIP", credentials.publicIp().strip())
+                .header("X-MACAddress", credentials.macAddress().strip())
+                .header("X-UserType", "USER")
+                .header("X-SourceID", "WEB")
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json");
     }
 
     static LocalDateTime parseTime(String raw) {
