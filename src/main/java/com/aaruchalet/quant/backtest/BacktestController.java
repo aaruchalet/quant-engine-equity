@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 
@@ -18,6 +19,22 @@ public class BacktestController {
                               @Value("${trading.history.symbol}") String historySymbol) {
         this.historicalCsv = Path.of(csvPath);
         this.historySymbol = historySymbol;
+    }
+
+    /**
+     * Metadata only: never disclose the absolute server file path or CSV contents.
+     * Reachability is localhost-only by default via application.yml.
+     */
+    @GetMapping("/history-status")
+    public Map<String, Object> historyStatus() throws IOException {
+        boolean present = Files.isRegularFile(historicalCsv) && Files.size(historicalCsv) > 0;
+        String filename = historicalCsv.getFileName() == null ? "history.csv" : historicalCsv.getFileName().toString();
+        return Map.of(
+                "symbol", historySymbol,
+                "available", present,
+                "fileName", filename,
+                "sizeBytes", present ? Files.size(historicalCsv) : 0L
+        );
     }
 
     @PostMapping("/ema-vwap-rsi")
