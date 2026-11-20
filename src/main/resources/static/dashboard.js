@@ -11,7 +11,7 @@
   const money = (value) => currency.format(Number(value) || 0);
   const n = (value) => number.format(Number(value) || 0);
   const pageSize = 12;
-  const state = {report: null, page: 0, fileReady: false};
+  const state = {report: null, page: 0, fileReady: false, activeVersion: "v1"};
 
   function showFeedback(message, kind = "info") {
     feedback.textContent = message;
@@ -85,7 +85,8 @@
     setBusy(true);
     showFeedback("Processing your local historical candles and executing the strategy…");
     try {
-      const response = await fetch("/api/backtests/ema-vwap-rsi", {
+      const isV2 = $("strategyVersion").value === "v2";
+      const response = await fetch(isV2 ? "/api/backtests/vwap-ema-v2" : "/api/backtests/ema-vwap-rsi", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify(request)
@@ -96,6 +97,7 @@
         throw new Error("Server returned an incomplete backtest report.");
       }
       state.report = payload;
+      state.activeVersion = $("strategyVersion").value;
       state.page = 0;
       $("tradeSearch").value = "";
       $("sideFilter").value = "";
@@ -131,7 +133,8 @@
   }
 
   function renderReport(report) {
-    setText("resultTitle", report.symbol + " · Historical simulation");
+    setText("resultTitle", report.symbol + " · " + (state.activeVersion === "v2" ?
+      "EMA → RSI → VWAP-bounce V2" : "Legacy EMA/VWAP/RSI V1") + " simulation");
     setText("resultPeriod", formatDate(report.from) + " – " + formatDate(report.through) + " · " + report.timezone);
     setText("metricProfit", money(report.netProfit));
     setText("metricReturn", (Number(report.returnPercent) > 0 ? "+" : "") + percent(report.returnPercent) + " return");
@@ -279,6 +282,21 @@
     saveFile("niftybees-backtest-trades.csv", lines.join("\r\n") + "\r\n", "text/csv;charset=utf-8");
   }
 
+  const v1Only = ["riskPercent","stopLossPercent","targetRiskReward","fastEma","slowEma",
+    "rsiPeriod","maxTradesPerDay","maxDailyLossPercent","lotSize","longRsiMin","longRsiMax","allowShort"];
+  $("strategyVersion").addEventListener("change", () => {
+    const isV2 = $("strategyVersion").value === "v2";
+    $("v2Explanation").hidden = !isV2;
+    for (const field of v1Only) $(field).disabled = isV2;
+    state.report = null;
+    $("results").hidden = true;
+    $("emptyState").hidden = false;
+    $("downloadJson").disabled = true;
+    $("downloadCsv").disabled = true;
+    if (isV2) showFeedback("V2 requires a CSV with genuine 15:00 bar-opening prices. " +
+      "The existing 14:55-only CSV is valid for V1 but cannot produce verified V2 square-off results.");
+    else feedback.hidden = true;
+  });
   form.addEventListener("submit", runBacktest);
   $("tradeSearch").addEventListener("input", () => { state.page = 0; renderTrades(); });
   $("sideFilter").addEventListener("change", () => { state.page = 0; renderTrades(); });
