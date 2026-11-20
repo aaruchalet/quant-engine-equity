@@ -384,3 +384,62 @@ When called through an application:
 ## 18. Success criterion
 
 Without the user naming **any stock**, autonomously discover and produce an evidence-backed, auditable shortlist of **Indian AMFI-classified small-cap stocks** in the configured price interval, with actionable **conditional** swing-trading plans suitable for the user-supplied holding period. Each BUY candidate must have a defensible catalyst or price setup, verified liquidity, an explicit stop-loss, net reward/risk ≥ 2:1, and transparent risk disclosures. Return **NO BUY** when no eligible setup exists.
+
+
+---
+
+## 19. Application implementation contract (added 20 November 2026)
+
+This Markdown document preserves the full research scoring rubric above, but the
+**installed trading dashboard is deterministic Java/Spring Boot code and does not use AI**.
+The historical `scripts/research-small-caps.sh` program is an optional, separate legacy
+Codex research helper; the dashboard never starts it, depends on it, or treats its
+unsourced text as broker trading authorization.
+
+The Equity tab supports two different discovery modes:
+
+1. **Scan broad universe:** verify the current AMFI constituent classification,
+   deduplicate by ISIN, and evaluate every mapped security before claiming a
+   comprehensive small-cap scan. A live **NIFTY SMALLCAP 250** constituent scan is
+   only partial preliminary discovery and must label `completeAmfiCoverage: false`.
+2. **Inspect specific equity:** user enters a company or NSE ticker in the search box.
+   A fresh source request identifies the instrument and quote as of an exchange
+   timestamp. A custom ticker does **not** waive fundamentals, surveillance, or
+   liquidity requirements; these are `UNKNOWN` until verified.
+
+A price-only source cannot produce a verified BUY. The current read-only website
+adapter is disabled unless the operator has express authorization under NSE
+website terms. Browser research shortcuts to NSE, BSE, Screener, Tickertape,
+Trendlyne, TradingView, Chartink, Moneycontrol and SEBI are external reference
+links, **not proof that all nine were fetched, checked, or authorized for automated
+collection**. Any implementation that cannot access current lawful sources must
+return `DATA_UNAVAILABLE` or `INSUFFICIENT_DATA`, never silently load an old
+recommendation. The system must not evade CAPTCHA, access controls, IP restrictions
+or provider rate limits. Authorized broker/exchange feeds may be used in the
+future without a dependence on an AI service.
+
+### Checks to prioritize for a 30–60 calendar-day holding intent
+
+The editable `HOLDING_PERIOD` remains expressed in **trading sessions**.
+Do not silently substitute a 30–60 **calendar-day** limit for the configured
+20–45 session default.
+
+| Priority | Verification | Reason |
+| --- | --- | --- |
+| **Critical** | Executable liquidity, depth, traded value and ability to exit | Avoid no-bid/low-circuit positions |
+| **Critical** | Governance, auditor risks and live ASM/GSM/trade-to-trade status | Reject structurally unsafe or restricted stocks |
+| **High** | Earnings quality, operating cash flow, debt and interest servicing | Validate business and balance-sheet health |
+| **High** | Price trend, price/volume participation, EMA9/20/50 and support | Confirm an executable entry rather than chasing |
+| **High** | Peer-relative P/E/P/B/EV/EBITDA and current valuations | Avoid expensive or misleading nominally low-priced shares |
+| **High** | Verified exchange announcements and 30–90 day catalysts | Identify near-term triggers and adverse events |
+| **High** | Stop, profit targets, *net* reward:risk of at least 2:1 and exit window | Enforce quantified downside and strategy validity |
+| **Medium** | FII/DII holdings, promoter changes/pledges and governance context | Supporting signals only, never override hard gates |
+
+The order matters: unknown or failed critical gates cannot be overridden by
+momentum or a high computed score. For a searched individual ticker, show
+`UNVERIFIED` for any missing check and provide its source link, rather than
+manufacturing financial statements, ratings, predictions or BUY signals.
+
+**Index separation:** NIFTY and SENSEX tabs are exclusively YAML-controlled
+PAPER/LIVE execution and per-index status/strategy logs; they are not options
+backtest forms. Historical cash-equity CSV simulation is located in Equity.
