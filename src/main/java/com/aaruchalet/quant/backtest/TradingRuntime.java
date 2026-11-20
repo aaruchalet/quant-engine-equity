@@ -414,14 +414,23 @@ class TradingRuntime implements DisposableBean {
         result.put("lotSize",index.lotSize);
         result.put("maximumLots",options.maximumLots()==Integer.MAX_VALUE?"APPLICATION":options.maximumLots());
         result.put("dailyBudget",options.dailyBudget());
-        result.put("strategy",Map.of(
-                "identifier","VWAP_BOUNCE_EMA_V2", "timeframe","5 minutes",
-                "emaFast",strategy.fastEma(),"emaSlow",strategy.slowEma(),"rsiPeriod",strategy.rsiPeriod(),
-                "longRsiAbove",strategy.longRsiAbove(),"shortRsiBelow",strategy.shortRsiBelow(),
-                "stopPercent",strategy.stopPercent(),"targetPercent",strategy.targetPercent(),
-                "firstEntry",strategy.entryStart().toString(),"lastEntry",strategy.lastEntry().toString(),
-                "squareOff",strategy.squareOff().toString(),"maximumTradesPerDay",strategy.maxTradesPerDay(),
-                "dailyLossCutoff",strategy.maxDailyLossInr(),"dailyProfitCutoff",strategy.maxDailyProfitInr()));
+        var strategyDetails=new LinkedHashMap<String,Object>();
+        strategyDetails.put("identifier","VWAP_BOUNCE_EMA_V2");
+        strategyDetails.put("timeframe","5 minutes");
+        strategyDetails.put("emaFast",strategy.fastEma());
+        strategyDetails.put("emaSlow",strategy.slowEma());
+        strategyDetails.put("rsiPeriod",strategy.rsiPeriod());
+        strategyDetails.put("longRsiAbove",strategy.longRsiAbove());
+        strategyDetails.put("shortRsiBelow",strategy.shortRsiBelow());
+        strategyDetails.put("stopPercent",strategy.stopPercent());
+        strategyDetails.put("targetPercent",strategy.targetPercent());
+        strategyDetails.put("firstEntry",strategy.entryStart().toString());
+        strategyDetails.put("lastEntry",strategy.lastEntry().toString());
+        strategyDetails.put("squareOff",strategy.squareOff().toString());
+        strategyDetails.put("maximumTradesPerDay",strategy.maxTradesPerDay());
+        strategyDetails.put("dailyLossCutoff",strategy.maxDailyLossInr());
+        strategyDetails.put("dailyProfitCutoff",strategy.maxDailyProfitInr());
+        result.put("strategy",strategyDetails);
         if(journal!=null) {
             var state=journal.read();
             result.put("day",state.day);
