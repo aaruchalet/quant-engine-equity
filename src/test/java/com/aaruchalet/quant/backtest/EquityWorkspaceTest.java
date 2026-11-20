@@ -72,6 +72,11 @@ class EquityWorkspaceTest {
             assertFalse(page.contains("href=\"#trading\""));
             assertTrue(page.contains("id=\"equityQuery\""));
             assertTrue(page.contains("id=\"equityBacktest\""));
+            assertTrue(page.contains("id=\"equityResearchTab\""));
+            assertTrue(page.contains("id=\"equityResearchPane\""));
+            assertTrue(page.contains("id=\"equityResearchDetail\""));
+            assertTrue(js.contains("/api/equity/research?isin="));
+            assertTrue(js.contains("candidateTable(data)"));
             assertTrue(js.contains("/api/trading/indices/"));
             assertTrue(js.contains("/api/equity/discover"));
             assertTrue(js.contains("/api/equity/eod/"));
