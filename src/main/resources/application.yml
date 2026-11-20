@@ -10,7 +10,7 @@ management:
       exposure:
         include: health,info
 trading:
-  mode: BACKTEST  # BACKTEST | PAPER | LIVE. Restart after changing modes.
+  mode: PAPER  # PAPER by default: simulated orders only. LIVE requires explicit YAML change and preflight.
   runtime:
     state-directory: ${TRADING_STATE_DIRECTORY:./data/runtime}
     poll-ms: 5000
@@ -20,6 +20,8 @@ trading:
     stop-limit-buffer-percent: 1.0
     client-code: ${ANGEL_ONE_CLIENT_CODE:}
   equity:
+    # NSE website automated access is OFF unless your organization has express authorization.
+    nse-website-access-authorized: ${TRADING_EQUITY_NSE_WEBSITE_ACCESS_AUTHORIZED:false}
     snapshot-path: ${TRADING_EQUITY_SNAPSHOT_PATH:data/equity/snapshot.json}
   history:
     options-replay-path: ${TRADING_HISTORY_OPTIONS_REPLAY_PATH:data/options/request.json}
