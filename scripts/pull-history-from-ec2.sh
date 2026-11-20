@@ -11,7 +11,13 @@ if [[ -z "$EC2_SSH" ]]; then
   echo 'Do not assume quant-engine.aaruchalet.com accepts SSH.' >&2
   exit 2
 fi
-OUT="${1:-${SCRIPT_DIR}/../data/niftybees-5min-2026-05-20-to-2026-11-19.csv}"
+V2_INCLUDE_1500="${V2_INCLUDE_1500:-0}"
+case "$V2_INCLUDE_1500" in
+  0) DEFAULT_OUT="${SCRIPT_DIR}/../data/niftybees-5min-2026-05-20-to-2026-11-19.csv"; V2_FLAG="" ;;
+  1) DEFAULT_OUT="${SCRIPT_DIR}/../data/niftybees-5min-2026-05-20-to-2026-11-19-v2-1500.csv"; V2_FLAG="--v2-1500" ;;
+  *) echo 'V2_INCLUDE_1500 must be 0 or 1' >&2; exit 2 ;;
+esac
+OUT="${1:-$DEFAULT_OUT}"
 FROM_DATE="${FROM_DATE:-2026-05-20}"
 THROUGH_DATE="${THROUGH_DATE:-2026-11-19}"
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=12)
@@ -50,7 +56,7 @@ cleanup() {
 trap cleanup EXIT
 printf 'Starting read-only Angel One export on EC2...\n' >&2
 ssh "${SSH_OPTS[@]}" "$EC2_SSH" \
-  "python3 - --from-date '$FROM_DATE' --through-date '$THROUGH_DATE' --output '$REMOTE_DIR/history.csv' --credentials-file '/home/ubuntu/.config/quant-engine-test/trading-test.env'" \
+  "python3 - --from-date '$FROM_DATE' --through-date '$THROUGH_DATE' --output '$REMOTE_DIR/history.csv' $V2_FLAG --credentials-file '/home/ubuntu/.config/quant-engine-test/trading-test.env'" \
   < "$SCRIPT_DIR/ec2_export_angel_history.py"
 mkdir -p "$(dirname "$OUT")"
 umask 077
