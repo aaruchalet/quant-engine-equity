@@ -19,9 +19,10 @@ public final class CsvHistoryRepository {
 
     /** V2 must have genuine 15:00 opening-price bars; V1 remains at 14:55. */
     public History load(Path file, LocalDate through, LocalTime requiredLastBar) throws IOException {
-        if (!requiredLastBar.equals(LocalTime.of(14, 55))
-                && !requiredLastBar.equals(LocalTime.of(15, 0)))
-            throw new IllegalArgumentException("Supported history cutoffs are 14:55 (V1) or 15:00 (V2)");
+        if (requiredLastBar.isBefore(LocalTime.of(9, 15))
+                || requiredLastBar.isAfter(LocalTime.of(15, 25))
+                || requiredLastBar.getMinute() % 5 != 0 || requiredLastBar.getSecond() != 0)
+            throw new IllegalArgumentException("History cutoff must be a valid NSE 5-minute bar open");
         if (!Files.isRegularFile(file)) throw new IllegalArgumentException(
                 "No history CSV at " + file + ". Supply real licensed OHLCV candles via HISTORY_CSV_PATH");
         List<String> lines = Files.readAllLines(file);
