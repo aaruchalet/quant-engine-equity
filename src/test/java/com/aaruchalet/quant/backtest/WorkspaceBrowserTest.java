@@ -21,8 +21,8 @@ class WorkspaceBrowserTest {
         Path chrome = Path.of("/usr/bin/google-chrome");
         assumeTrue(Files.isExecutable(chrome),"Chrome browser smoke runs on the hosted Ubuntu runner");
         String url = "http://127.0.0.1:" + environment.getRequiredProperty("local.server.port");
-        var titles = Map.of("nifty","NIFTY options backtest","sensex","SENSEX options backtest",
-                "trading","Trading monitor","equity","Equity screener");
+        var titles = Map.of("nifty","NIFTY option trading","sensex","SENSEX option trading",
+                "equity","Equity research");
         for (var tab : titles.entrySet()) {
             Path dom = temporary.resolve(tab.getKey()+".html");
             var process = new ProcessBuilder(chrome.toString(),"--headless","--no-sandbox","--disable-dev-shm-usage",
@@ -37,7 +37,14 @@ class WorkspaceBrowserTest {
             assertTrue(html.contains("href=\"#"+tab.getKey()+"\" aria-current=\"page\""),tab.getKey());
             assertTrue(Pattern.compile("<section id=\""+tab.getKey()+"\">.*?<h1>"+tab.getValue()+"</h1>",Pattern.DOTALL)
                     .matcher(html).find(),tab.getKey());
-            if (tab.getKey().equals("trading")) assertTrue(html.contains("<b>BACKTEST</b>"),"Runtime snapshot rendered");
+            assertFalse(html.contains("href=\"#trading\""),"Standalone Trading tab must not exist");
+            if (tab.getKey().equals("equity")) {
+                assertTrue(html.contains("id=\"equityQuery\""),"Equity symbol search is present");
+                assertTrue(html.contains("id=\"equityBacktest\""),"Equity-only backtester exists");
+            } else {
+                assertTrue(html.contains("INDEX OPTIONS"),"Trading-only index page");
+                assertFalse(html.contains("Run backtest"),"Index pages cannot launch historical replay");
+            }
         }
     }
 }
