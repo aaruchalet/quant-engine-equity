@@ -21,7 +21,7 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_*.py' -v
           bash -n scripts/pull-history-from-ec2.sh
       - name: Validate dashboard JavaScript
-        run: node --check src/main/resources/static/dashboard.js
+        run: |\n          node --check src/main/resources/static/dashboard.js\n          node --check src/main/resources/static/workspace.js
       - name: Run tests and build
         run: ./gradlew clean test build --no-daemon
       - name: Start the standalone JAR outside the checkout
@@ -36,7 +36,7 @@ jobs:
             if ! kill -0 "$app_pid"; then cat standalone.log; exit 1; fi
             sleep 1
           done
-          python3 -c 'import json; assert json.load(open("status.json"))["mode"] == "BACKTEST"'
+          python3 -c 'import json; assert json.load(open("status.json"))["mode"] == "PAPER"'
       - name: Summarize Java coverage
         run: |
           python3 - <<'PY'
