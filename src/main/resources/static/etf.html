@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="Local NIFTYBEES EMA/VWAP/RSI backtesting dashboard">
+  <title>Quant Engine Test — Backtest Dashboard</title>
+  <link rel="stylesheet" href="/dashboard.css">
+  <script src="/dashboard.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-symbol" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M5 22l8-9 6 6 8-13" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 6h6v6" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <div><strong>quant<span>engine</span></strong><small>TRADING CONSOLE</small></div>
+      </div>
+      <div class="topbar-side"><span class="research-tag" id="runtimeMode">Checking mode…</span><span class="local-tag"><span class="online-dot"></span> Local environment</span></div>
+    </div>
+  </header>
+
+  <main class="app-layout">
+    <aside class="sidebar" aria-labelledby="setupTitle">
+      <div class="panel-topline"><span class="eyebrow">CONFIGURATION</span><span class="version">01 / STRATEGY</span></div>
+      <h1 id="setupTitle">Backtest setup</h1>
+      <p class="muted sidebar-intro">Run the EMA crossover, session VWAP and RSI strategy against your local 5-minute candle data.</p>
+
+      <div class="data-panel" aria-live="polite">
+        <div class="data-icon" aria-hidden="true">≋</div>
+        <div class="data-copy">
+          <strong id="dataLabel">Checking data source…</strong>
+          <small id="dataDetail">Local CSV configured in Spring Boot</small>
+        </div>
+        <span id="dataIndicator" class="data-indicator neutral" aria-label="Checking"></span>
+      </div>
+
+      <form id="backtestForm" novalidate>
+        <div class="field">
+          <label for="strategyVersion">Strategy version</label>
+          <select id="strategyVersion" name="strategyVersion">
+            <option value="v1">V1 · Legacy EMA/VWAP/RSI (14:55)</option>
+            <option value="v2">V2 · EMA → RSI → VWAP side (15:00)</option>
+          </select>
+        </div>
+        <p id="v2Explanation" class="strategy-note" hidden>V2: EMA crossover and RSI first; the candle must close above VWAP for long or below VWAP for short. Touching VWAP is optional. Periods, thresholds, quantity, risk limits, session times and estimated Angel One NSE intraday fees come from the V2 YAML configuration. The CSV must contain genuine opening prices through the configured square-off.</p>
+        <div class="section-heading"><span>01</span> Dataset</div>
+        <div class="field">
+          <label for="symbol">Instrument</label>
+          <input id="symbol" name="symbol" type="text" value="NIFTYBEES" spellcheck="false" autocomplete="off" required>
+        </div>
+        <div class="form-grid">
+          <div class="field"><label for="from">From</label><input id="from" name="from" type="date" value="2026-05-20" required></div>
+          <div class="field"><label for="through">Through</label><input id="through" name="through" type="date" value="2026-11-19" required></div>
+        </div>
+
+        <div class="section-heading"><span>02</span> Capital &amp; risk</div>
+        <div class="field"><label for="initialCapital">Initial capital <small>₹</small></label><input id="initialCapital" name="initialCapital" type="number" min="1" step="1" value="100000" required></div>
+        <div class="form-grid">
+          <div class="field"><label for="riskPercent" title="Percentage of capital risked per trade; not the number of trades or percentage invested">Risk / trade <small>%</small></label><input id="riskPercent" name="riskPercent" type="number" min="0.01" max="10" step="0.01" value="1" required></div>
+          <div class="field"><label for="stopLossPercent">Stop loss <small>%</small></label><input id="stopLossPercent" name="stopLossPercent" type="number" min="0.01" max="99" step="0.01" value="0.5" required></div>
+          <div class="field"><label for="targetRiskReward">Target <small>R multiple</small></label><input id="targetRiskReward" name="targetRiskReward" type="number" min="0.1" step="0.1" value="2" required></div>
+          <div class="field"><label for="slippageBps">Slippage <small>bps / fill</small></label><input id="slippageBps" name="slippageBps" type="number" min="0" step="0.5" value="2" required></div>
+        </div>
+
+        <details class="advanced-controls">
+          <summary><span>Advanced parameters</span><span class="details-hint">EMAs, RSI, costs</span></summary>
+          <div class="advanced-content">
+            <div class="form-grid">
+              <div class="field"><label for="fastEma">Fast EMA</label><input id="fastEma" name="fastEma" type="number" min="2" value="9"></div>
+              <div class="field"><label for="slowEma">Slow EMA</label><input id="slowEma" name="slowEma" type="number" min="3" value="20"></div>
+              <div class="field"><label for="rsiPeriod">RSI period</label><input id="rsiPeriod" name="rsiPeriod" type="number" min="2" value="14"></div>
+              <div class="field"><label for="maxTradesPerDay">Max trades / day</label><input id="maxTradesPerDay" name="maxTradesPerDay" type="number" min="1" value="5"></div>
+              <div class="field"><label for="feeBps">Fee <small>bps / order</small></label><input id="feeBps" name="feeBps" type="number" min="0" step="0.1" value="0"></div>
+              <div class="field"><label for="feePerOrder">Fixed fee <small>₹ / order</small></label><input id="feePerOrder" name="feePerOrder" type="number" min="0" step="0.1" value="0"></div>
+              <div class="field"><label for="maxDailyLossPercent">Max daily loss <small>%</small></label><input id="maxDailyLossPercent" name="maxDailyLossPercent" type="number" min="0.1" max="100" step="0.1" value="3"></div>
+              <div class="field"><label for="lotSize">Lot size</label><input id="lotSize" name="lotSize" type="number" min="1" value="1"></div>
+              <div class="field"><label for="longRsiMin">Long RSI min</label><input id="longRsiMin" name="longRsiMin" type="number" min="0" max="100" step="1" value="55"></div>
+              <div class="field"><label for="longRsiMax">Long RSI max</label><input id="longRsiMax" name="longRsiMax" type="number" min="0" max="100" step="1" value="75"></div>
+            </div>
+            <label class="checkbox-field" for="allowShort"><input id="allowShort" name="allowShort" type="checkbox"><span>Allow short positions <small>ETF short execution not modeled for live trading</small></span></label>
+          </div>
+        </details>
+
+        <button class="primary-button" id="runButton" type="submit"><span class="button-spinner" aria-hidden="true"></span><span id="runButtonText">Run historical backtest</span><span aria-hidden="true">↗</span></button>
+        <p class="sidebar-footnote">Runs locally against the configured CSV. No orders are placed and no data is sent to a broker.</p>
+      </form>
+    </aside>
+
+    <section class="workspace" aria-labelledby="workspaceTitle">
+      <div class="workspace-heading">
+        <div><span class="eyebrow">STRATEGY ANALYTICS</span><h2 id="workspaceTitle">Performance overview</h2><p class="muted">Five-minute historical simulation · IST</p></div>
+        <div class="report-actions">
+          <button id="downloadJson" type="button" class="action-button" disabled>Export JSON</button>
+          <button id="downloadCsv" type="button" class="action-button" disabled>Trades CSV</button>
+        </div>
+      </div>
+      <div id="feedback" class="feedback" role="status" aria-live="polite" hidden></div>
+
+      <div id="emptyState" class="empty-state">
+        <div class="empty-graphic" aria-hidden="true">
+          <svg viewBox="0 0 320 176" fill="none">
+            <path d="M12 145H308M12 99H308M12 53H308" stroke="#dce5ef" stroke-dasharray="4 7"/>
+            <path d="M16 131L54 118 83 126 120 92 153 101 185 72 220 84 257 44 303 21" stroke="#a9b9d0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M16 131L54 118 83 126 120 92 153 101 185 72 220 84 257 44 303 21V167H16Z" fill="url(#previewFill)"/>
+            <circle cx="257" cy="44" r="7" fill="#fff" stroke="#4d6b94" stroke-width="3"/>
+            <defs><linearGradient id="previewFill" x1="160" y1="20" x2="160" y2="167" gradientUnits="userSpaceOnUse"><stop stop-color="#83a5ce" stop-opacity=".26"/><stop offset="1" stop-color="#83a5ce" stop-opacity="0"/></linearGradient></defs>
+          </svg>
+        </div>
+        <span class="empty-eyebrow">READY TO ANALYZE</span>
+        <h3>Your backtest results will appear here.</h3>
+        <p>Choose the historical period and strategy settings, then select <strong>Run historical backtest</strong> to calculate performance from your local dataset.</p>
+        <div class="empty-steps"><span>01 · LOAD CSV</span><span>02 · RUN STRATEGY</span><span>03 · REVIEW TRADES</span></div>
+      </div>
+
+      <div id="results" hidden>
+        <div class="result-topline"><div><span class="eyebrow">BACKTEST RESULTS</span><h3 id="resultTitle">NIFTYBEES · Historical simulation</h3><p id="resultPeriod" class="muted"></p></div><span class="result-pill">COMPLETED</span></div>
+        <div class="metrics-grid">
+          <article class="metric-card main-metric"><span>Net P&amp;L</span><strong id="metricProfit" class="metric-value">—</strong><small id="metricReturn">—</small></article>
+          <article class="metric-card"><span>Ending capital</span><strong id="metricCapital" class="metric-value">—</strong><small id="metricInitialCapital">—</small></article>
+          <article class="metric-card"><span>Win rate</span><strong id="metricWinRate" class="metric-value">—</strong><small id="metricWins">—</small></article>
+          <article class="metric-card"><span>Completed trades</span><strong id="metricTrades" class="metric-value">—</strong><small id="metricSessions">—</small></article>
+          <article class="metric-card"><span>Max closed-equity drawdown</span><strong id="metricDrawdown" class="metric-value">—</strong><small>Not intratrade drawdown</small></article>
+          <article class="metric-card"><span>Profit factor</span><strong id="metricProfitFactor" class="metric-value">—</strong><small>Net winning / net losing P&amp;L</small></article>
+        </div>
+
+        <section class="result-card chart-card" aria-labelledby="equityTitle">
+          <div class="card-header"><div><h3 id="equityTitle">Equity curve</h3><p>Balance after each closed trade · ₹</p></div><span class="chart-label">CLOSED-TRADE EQUITY</span></div>
+          <div class="chart-scroller"><svg id="equityChart" viewBox="0 0 920 280" role="img" aria-label="Closed-trade equity curve" preserveAspectRatio="xMidYMid meet"></svg></div>
+          <div class="chart-foot"><span id="chartStart">—</span><span id="chartEnd">—</span></div>
+        </section>
+
+        <section class="result-card trade-card" aria-labelledby="tradesTitle">
+          <div class="card-header trades-header"><div><h3 id="tradesTitle">Trade history</h3><p id="tradeSummary">All simulated positions</p></div><div class="trade-filters"><label class="sr-only" for="tradeSearch">Search trades</label><input id="tradeSearch" type="search" placeholder="Search date or reason" aria-label="Search trades"><label class="sr-only" for="sideFilter">Trade side</label><select id="sideFilter" aria-label="Trade side"><option value="">All sides</option><option value="LONG">Long</option><option value="SHORT">Short</option></select></div></div>
+          <div class="table-scroll"><table><thead><tr><th>Entry (IST)</th><th>Exit (IST)</th><th>Side</th><th class="numeric">Qty</th><th class="numeric">Entry ₹</th><th class="numeric">Exit ₹</th><th class="numeric">Fees ₹</th><th class="numeric">Net P&amp;L ₹</th><th>Exit reason</th></tr></thead><tbody id="tradeRows"></tbody></table></div>
+          <div class="table-footer"><span id="paginationInfo">—</span><div><button id="prevPage" class="pager" type="button" disabled>Previous</button><button id="nextPage" class="pager" type="button" disabled>Next</button></div></div>
+        </section>
+
+        <section class="data-notes">
+          <div><strong>Data coverage</strong><p id="coverageNote">—</p></div>
+          <div><strong>Simulation assumptions</strong><p>Signals execute at the next candle open. Intrabar stop/target conflicts assume stop first. Drawdown uses closed trades only. Brokerage and taxes require explicit configuration.</p></div>
+          <div id="skippedBlock" hidden><strong>Skipped sessions</strong><p id="skippedNote">—</p></div>
+        </section>
+      </div>
+    </section>
+  </main>
+  <section class="runtime-panel" aria-label="Trading runtime">
+    <h2>Market runner</h2><p id="runtimeStatus">Checking runner…</p>
+    <details><summary>Recent orders and fills</summary><pre id="runtimeEvents"></pre></details>
+    <h2>Index options backtest</h2>
+    <form id="optionReplay"><label for="optionRequest">Historical replay JSON</label>
+      <input type="file" id="optionRequest" accept=".json,application/json" required>
+      <button type="submit">Run options backtest</button></form>
+    <pre id="optionResult" aria-live="polite"></pre>
+  </section>
+  <footer class="page-footer">quant-engine-test · Standalone Angel One trading console</footer>
+</body>
+</html>

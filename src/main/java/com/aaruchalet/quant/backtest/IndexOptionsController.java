@@ -25,6 +25,18 @@ public class IndexOptionsController {
         return new IndexOptionsReplay(IndexOptionsConfig.load(options), VwapEmaV2Config.fromYaml(strategy)).run(request);
     }
 
+    @PostMapping("/{index}")
+    public IndexOptionsReplay.Report replayIndex(@PathVariable IndexOptionsReplay.Index index,
+                                                  @RequestBody IndexOptionsReplay.Request request) throws IOException {
+        if (request.sessions() == null) throw new IllegalArgumentException("Provide sessions");
+        var selected = request.sessions().stream().map(session -> {
+            if (session == null || session.markets() == null || session.markets().get(index) == null)
+                throw new IllegalArgumentException("Missing " + index + " data in session");
+            return new IndexOptionsReplay.Session(session.date(), Map.of(index, session.markets().get(index)));
+        }).toList();
+        return replay(new IndexOptionsReplay.Request(selected));
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String,String>> badRequest(IllegalArgumentException ex) {
         return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));

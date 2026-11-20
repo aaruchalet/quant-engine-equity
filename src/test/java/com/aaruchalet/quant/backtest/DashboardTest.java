@@ -37,7 +37,7 @@ class DashboardTest {
 
     @Test
     void packagedDashboardUsesExistingLocalApiWithoutBrokerCredentials() throws IOException {
-        String html = resource("static/index.html");
+        String html = resource("static/etf.html");
         String js = resource("static/dashboard.js");
         String css = resource("static/dashboard.css");
         assertTrue(html.contains("Backtest setup"));
@@ -55,7 +55,7 @@ class DashboardTest {
 
     @Test
     void numericInputsAcceptCommonCapitalAndRiskValues() throws IOException {
-        String html = resource("static/index.html");
+        String html = resource("static/etf.html");
         assertHtmlNumberAccepted(html, "initialCapital", "20000");
         assertHtmlNumberAccepted(html, "initialCapital", "100000");
         assertHtmlNumberAccepted(html, "riskPercent", "1");
