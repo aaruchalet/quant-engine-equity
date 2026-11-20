@@ -11,12 +11,16 @@ import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.core.io.FileSystemResource;
 
 record IndexOptionsConfig(BigDecimal dailyBudget, int maximumLots, int callOffset, int putOffset,
-                          String niftySignal, String sensexSignal,
+                          String niftySignal, String sensexSignal, String niftyProxy, String sensexProxy,
                           BigDecimal brokerage, BigDecimal niftyExchange, BigDecimal sensexExchange,
                           BigDecimal niftyIpft, BigDecimal sensexIpft, BigDecimal sebi,
                           BigDecimal stamp, BigDecimal stt, BigDecimal gst) {
     static IndexOptionsConfig load(Path path) throws IOException {
-        var sources = new YamlPropertySourceLoader().load("indexOptions", new FileSystemResource(path));
+        return load(new FileSystemResource(path));
+    }
+
+    static IndexOptionsConfig load(org.springframework.core.io.Resource resource) throws IOException {
+        var sources = new YamlPropertySourceLoader().load("indexOptions", resource);
         if (sources.size() != 1 || !(sources.getFirst() instanceof EnumerablePropertySource<?> source))
             throw new IllegalArgumentException("Expected one options YAML document");
         var remaining = new HashSet<>(Arrays.asList(source.getPropertyNames()));
@@ -30,10 +34,16 @@ record IndexOptionsConfig(BigDecimal dailyBudget, int maximumLots, int callOffse
             return s;
         };
         try {
+            Object raw = source.getProperty("maximumLots");
+            int cap;
+            if ("APPLICATION".equalsIgnoreCase(String.valueOf(raw)) || "AUTO".equalsIgnoreCase(String.valueOf(raw))) {
+                cap = Integer.MAX_VALUE;
+                remaining.remove("maximumLots");
+            } else cap = number.apply("maximumLots").intValueExact();
             var cfg = new IndexOptionsConfig(number.apply("dailyBudgetInr").setScale(2, RoundingMode.UNNECESSARY),
-                    number.apply("maximumLots").intValueExact(), number.apply("callStrikeOffset").intValueExact(),
+                    cap, number.apply("callStrikeOffset").intValueExact(),
                     number.apply("putStrikeOffset").intValueExact(), symbol.apply("signalSymbols.nifty"),
-                    symbol.apply("signalSymbols.sensex"), number.apply("fees.brokeragePerOrderInr"),
+                    symbol.apply("signalSymbols.sensex"), symbol.apply("vwapSymbols.nifty"), symbol.apply("vwapSymbols.sensex"), number.apply("fees.brokeragePerOrderInr"),
                     number.apply("fees.niftyExchangePercent"), number.apply("fees.sensexExchangePercent"),
                     number.apply("fees.niftyIpftPercent"), number.apply("fees.sensexIpftPercent"),
                     number.apply("fees.sebiPercent"), number.apply("fees.stampDutyBuyPercent"),
@@ -51,6 +61,20 @@ record IndexOptionsConfig(BigDecimal dailyBudget, int maximumLots, int callOffse
         for (var rate : java.util.List.of(niftyExchange, sensexExchange, niftyIpft, sensexIpft, sebi, stamp, stt, gst))
             if (rate.signum() < 0 || rate.compareTo(BigDecimal.valueOf(100)) > 0)
                 throw new IllegalArgumentException("Options fee percentages must be in [0, 100]");
+    }
+
+    long lots(IndexOptionsReplay.Index index, BigDecimal ask, long depth, BigDecimal available) {
+        long cap = Math.min(maximumLots(), depth / index.lotSize);
+        BigDecimal lotPremium = ask.multiply(BigDecimal.valueOf(index.lotSize));
+        // Per-order fees are monotone. Binary search remains bounded for large configured caps.
+        long low = 0, high = cap;
+        while (low < high) {
+            long lots = (low + high + 1) / 2;
+            var premium = lotPremium.multiply(BigDecimal.valueOf(lots));
+            if (premium.add(fee(index, premium, true)).compareTo(available) <= 0) low = lots;
+            else high = lots - 1;
+        }
+        return low;
     }
 
     BigDecimal fee(IndexOptionsReplay.Index index, BigDecimal turnover, boolean buy) {

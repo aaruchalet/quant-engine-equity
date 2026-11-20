@@ -20,6 +20,11 @@ public final class IndicatorState {
     }
 
     public Snapshot add(Candle b) {
+        return add(b, b);
+    }
+
+    public Snapshot add(Candle priceBar, Candle b) {
+        if (!priceBar.openTime().equals(b.openTime())) throw new IllegalArgumentException("Unaligned signal and VWAP bars");
         LocalDate currentDate = b.openTime().toLocalDate();
         if (!currentDate.equals(session)) {
             session = currentDate;
@@ -30,7 +35,7 @@ public final class IndicatorState {
         cumulativePriceVolume += b.hlc3() * b.volume();
         cumulativeVolume += b.volume();
         bars++;
-        double price = b.close();
+        double price = priceBar.close();
 
         if (fast == null) {
             fastSeed += price;

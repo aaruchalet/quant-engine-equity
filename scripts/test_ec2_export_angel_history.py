@@ -226,18 +226,18 @@ class HistoryExporterTests(unittest.TestCase):
                 'ANGEL_ONE_JWT_TOKEN=abc.def.ghi\n'
             )
             path.chmod(0o600)
-            headers, token=mod.load_credentials(None,'13.202.233.29', Path('/does/not/exist'), credentials_file=path)
+            headers, token=mod.load_credentials('13.202.233.29', path)
             self.assertEqual(headers['X-PrivateKey'],'app-specific-key')
             self.assertEqual(headers['X-ClientPublicIP'],'13.202.233.29')
             self.assertEqual(headers['Authorization'],'Bearer abc.def.ghi')
             self.assertEqual(token,'')
             path.chmod(0o644)
             with self.assertRaisesRegex(mod.DownloadError,'mode 0600'):
-                mod.load_credentials(None,'13.202.233.29', Path('/does/not/exist'), credentials_file=path)
+                mod.load_credentials('13.202.233.29', path)
             path.chmod(0o600)
             path.unlink()
             with self.assertRaisesRegex(mod.DownloadError,'file missing'):
-                mod.load_credentials(None,'13.202.233.29', Path('/does/not/exist'), credentials_file=path)
+                mod.load_credentials('13.202.233.29', path)
 
 
 if __name__=='__main__':unittest.main()

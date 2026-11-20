@@ -2,8 +2,6 @@ server:
   port: ${PORT:8081}
   address: ${HOST:127.0.0.1}
 spring:
-  config:
-    import: optional:file:${V2_STRATEGY_CONFIG_PATH:./config/strategy-vwap-ema.example.yml}
   application:
     name: quant-engine-test
 management:
@@ -12,6 +10,15 @@ management:
       exposure:
         include: health,info
 trading:
+  mode: BACKTEST  # BACKTEST | PAPER | LIVE. Restart after changing modes.
+  runtime:
+    state-directory: ${TRADING_STATE_DIRECTORY:./data/runtime}
+    poll-ms: 5000
+    max-quote-age-seconds: 20
+    entry-window-seconds: 45
+    order-timeout-seconds: 20
+    stop-limit-buffer-percent: 1.0
+    client-code: ${ANGEL_ONE_CLIENT_CODE:}
   history:
     csv-path: ${HISTORY_CSV_PATH:data/history.csv}
     symbol: ${HISTORY_SYMBOL:NIFTYBEES}
@@ -20,8 +27,8 @@ trading:
     batch-days: ${HISTORY_BATCH_DAYS:14}
     access-key: ${BACKTEST_ACCESS_KEY:}
   strategy:
-    v2-config-path: ${V2_STRATEGY_CONFIG_PATH:config/strategy-vwap-ema.example.yml}
-    options-config-path: ${OPTIONS_CONFIG_PATH:config/index-options.yml}
+    v2-config-path: ${V2_STRATEGY_CONFIG_PATH:classpath:/strategy-vwap-ema.example.yml}
+    options-config-path: ${OPTIONS_CONFIG_PATH:classpath:/index-options.yml}
   angel-one:
     api-key: ${ANGEL_ONE_API_KEY:}
     jwt: ${ANGEL_ONE_JWT_TOKEN:}
@@ -31,3 +38,7 @@ trading:
     mac-address: ${ANGEL_ONE_MAC_ADDRESS:}
     exchange: ${ANGEL_ONE_EXCHANGE:NSE}
     symbol-token: ${ANGEL_ONE_SYMBOL_TOKEN:}
+
+logging:
+  level:
+    root: INFO                     # never log credentials/tokens/private client info

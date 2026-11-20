@@ -11,7 +11,7 @@ Before running, ensure the EC2 host is actually permitted to send historical req
 ## Prerequisites
 
 - Your Mac has an **authorized SSH connection** to the existing EC2 instance. The documented production deployment temporarily opens SSH only for its CI runner. MacBook SSH may be blocked by EC2's security group. Prefer a suitably secured Session Manager or temporary single-IP SSH arrangement administered within AWS; never open SSH globally just for this script.
-- EC2 has Python 3, Docker CLI, and permission for the SSH user to inspect the running `quant-engine` container.
+- EC2 has Python 3 and the dedicated SmartAPI credential file.
 - The **Trading test app-specific** API key and a currently valid JWT must be configured in `/home/ubuntu/.config/quant-engine-test/trading-test.env` on EC2. Production `quant-engine` broker credentials are deliberately **not** reused by the Mac launcher. Do not copy the production app key or stale session into the new file unless you have verified the session was issued for the correct application. Never commit or send the file to chat.
 - The current Angel One NSE instrument master contains exactly one `NIFTYBEES-EQ` entry; this script verifies the token against master metadata.
 - Check broker entitlement, market data limits, historical data license, and calendar completeness. No guarantee is made that six months will be available from the API.
@@ -152,7 +152,6 @@ Inspect `backtest-result.json` for tested sessions, skipped sessions, trades, an
 
 - **SSH permission denied / timeout:** no direct SSH path is configured from Mac to EC2. This workflow cannot change AWS security-group rules; have an authorized administrator configure access.
 - **Registered IP mismatch:** EC2 no longer leaves through `13.202.233.29`. Download stops before reading broker credentials; check the Elastic IP and SmartAPI registration.
-- **Docker permission denied:** your SSH user must be authorized to inspect the running parent container; the script does not auto-escalate privileges.
 - **Missing Trading test credentials file:** create the owner-only file described below on EC2; never put it in the production runtime env.
 - **Missing or expired JWT:** authenticate the Trading test app with Angel One and place the short-lived JWT in its private file. Do not paste JWTs, PINs or TOTP into chat, issues or logs.
 - **Broker 401/403/429:** broker session, app entitlement, registered egress IP, or rate limits must be resolved with Angel One.

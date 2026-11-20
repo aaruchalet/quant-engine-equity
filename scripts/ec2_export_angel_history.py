@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Read-only Angel One 5m history export, intended for an authorized EC2 host.
 
-Uses a dedicated private test-app credential file by default, or explicitly selected parent
-container config for legacy manual use;
+Uses the dedicated private SmartAPI credential file and
 never emits credentials or performs order operations. Requires registered egress IP.
 """
 from __future__ import annotations
@@ -16,7 +15,6 @@ import os
 from pathlib import Path
 import re
 import stat
-import subprocess
 import sys
 import tempfile
 import time
@@ -62,37 +60,6 @@ def verify_egress(actual: str, allowed: frozenset[str] = REGISTERED_EGRESS) -> N
                             'no request sent to Angel One. Verify registered gateway/static IP first.')
 
 
-def run_docker(*args: str) -> str:
-    try:
-        p = subprocess.run(['docker', *args], capture_output=True, text=True, check=False, timeout=15)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise DownloadError('Docker access unavailable; run with an EC2 user authorized to inspect quant-engine') from exc
-    if p.returncode != 0:
-        raise DownloadError('Unable to inspect existing quant-engine container/session (no credentials printed)')
-    return p.stdout
-
-
-def select_container(explicit: str | None) -> str:
-    if explicit:
-        if not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', explicit):
-            raise DownloadError('Invalid Docker container name')
-        return explicit
-    names = [x.strip() for x in run_docker('ps', '--format', '{{.Names}}').splitlines()]
-    matches = [x for x in names if x == 'quant-engine' or x.endswith('-quant-engine-1')]
-    if len(matches) != 1:
-        raise DownloadError('Find exactly one running quant-engine Docker container; pass --container NAME')
-    return matches[0]
-
-
-def read_docker_config(container: str) -> dict[str, str]:
-    raw = run_docker('inspect', '--format', '{{json .Config.Env}}', container)
-    try:
-        items = json.loads(raw)
-        return dict(item.split('=', 1) for item in items if '=' in item)
-    except (ValueError, TypeError) as exc:
-        raise DownloadError('Unable to read container environment') from exc
-
-
 def read_runtime_config(path: Path) -> dict[str, str]:
     """Read simple KEY=VALUE lines without evaluating shell or disclosing contents."""
     out: dict[str, str] = {}
@@ -113,24 +80,14 @@ def read_runtime_config(path: Path) -> dict[str, str]:
     return out
 
 
-def load_credentials(container: str | None, actual_public_ip: str, runtime_path: Path,
-                     credentials_file: Path | None = None) -> tuple[dict[str, str], str]:
-    """Separate test-app session prevents accidentally using a production API key/JWT."""
-    if credentials_file is not None:
-        try:
-            info = credentials_file.stat()
-        except OSError as exc:
-            raise DownloadError('Dedicated Trading test credentials file missing on EC2') from exc
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or (info.st_mode & 0o077):
-            raise DownloadError('Dedicated credentials must be owned by the EC2 user and mode 0600')
-        env = read_runtime_config(credentials_file)
-        container_env: dict[str, str] = {}
-    else:
-        if not container:
-            raise DownloadError('Explicit container required when no dedicated credentials file is provided')
-        container_env = read_docker_config(container)
-        runtime = read_runtime_config(runtime_path)
-        env = {**runtime, **{k:v for k,v in container_env.items() if v}}
+def load_credentials(actual_public_ip: str, credentials_file: Path) -> tuple[dict[str, str], str]:
+    try:
+        info = credentials_file.stat()
+    except OSError as exc:
+        raise DownloadError('Dedicated Trading test credentials file missing on EC2') from exc
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or (info.st_mode & 0o077):
+        raise DownloadError('Dedicated credentials must be owned by the EC2 user and mode 0600')
+    env = read_runtime_config(credentials_file)
     api_key = env.get('ANGEL_ONE_API_KEY', '')
     local_ip = env.get('ANGEL_ONE_LOCAL_IP', env.get('ANGEL_ONE_CLIENT_LOCAL_IP', ''))
     mac = env.get('ANGEL_ONE_MAC_ADDRESS', '')
@@ -138,15 +95,10 @@ def load_credentials(container: str | None, actual_public_ip: str, runtime_path:
         raise DownloadError('Missing existing broker API key/local IP/MAC in EC2 runtime configuration')
     jwt = env.get('ANGEL_ONE_JWT_TOKEN', '')
     if not jwt:
-        if credentials_file is not None:
-            raise DownloadError('Dedicated Trading test credentials file has no JWT; authenticate this app first')
-        cache = container_env.get('ANGEL_ONE_SESSION_CACHE_PATH', '/app/.local/recovery/angel-one-session.cache')
-        if not cache.startswith('/app/.local/recovery/'):
-            raise DownloadError('Configured broker session cache is outside expected private directory')
-        jwt = run_docker('exec', container, 'head', '-n', '1', cache).strip()
+        raise DownloadError('Dedicated Trading test credentials file has no JWT; authenticate this app first')
     jwt = jwt.removeprefix('Bearer ').strip()
     if not re.fullmatch(r'[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+', jwt):
-        raise DownloadError('No usable broker JWT in existing private container session cache; log in to parent first')
+        raise DownloadError('Invalid JWT in dedicated credentials file; authenticate this app first')
     fields = {'Authorization': f'Bearer {jwt}', 'X-PrivateKey': api_key,
               'X-ClientLocalIP': local_ip, 'X-ClientPublicIP': actual_public_ip,
               'X-MACAddress': mac, 'X-UserType': 'USER', 'X-SourceID': 'WEB',
@@ -422,10 +374,8 @@ def main() -> int:
     p.add_argument('--from-date', default='2026-05-20')
     p.add_argument('--through-date', default='2026-11-19')
     p.add_argument('--output', required=True, type=Path)
-    p.add_argument('--container', help='Existing quant-engine Docker container name')
-    p.add_argument('--runtime-env', type=Path, default=Path('/opt/aaru/deploy/runtime.env'))
     p.add_argument('--credentials-file', type=Path,
-                   help='Private mode-0600 test-app env file; avoids reading production broker config')
+                   default=Path.home() / '.config' / 'quant-engine-test' / 'trading-test.env')
     p.add_argument('--cache-dir', type=Path,
                    default=Path.home() / '.cache' / 'quant-engine-test' / 'angel-one-history',
                    help='Private persistent, resumable market-data checkpoints on EC2')
@@ -441,9 +391,7 @@ def main() -> int:
         actual = get_public_ip()
         verify_egress(actual)  # Must happen before ANY access to broker credentials.
         print(f'Verified registered EC2 outbound IP: {actual}', file=sys.stderr)
-        container = None if args.credentials_file else select_container(args.container)
-        headers, preset = load_credentials(container, actual, args.runtime_env,
-                                           credentials_file=args.credentials_file)
+        headers, preset = load_credentials(actual, args.credentials_file)
         token = resolve_token(preset)
         cutoff = dt.time(15, 0) if args.v2_1500 else DEFAULT_LAST_OPEN
         candles = collect_history(start, through, token, headers,

@@ -24,6 +24,19 @@ jobs:
         run: node --check src/main/resources/static/dashboard.js
       - name: Run tests and build
         run: ./gradlew clean test build --no-daemon
+      - name: Start the standalone JAR outside the checkout
+        run: |
+          app_jar="$PWD/build/libs/quant-engine-test-0.0.1-SNAPSHOT.jar"
+          cd "$RUNNER_TEMP"
+          java -jar "$app_jar" --server.port=18081 > standalone.log 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..40}; do
+            if curl -fsS http://127.0.0.1:18081/api/trading/status > status.json 2>/dev/null; then break; fi
+            if ! kill -0 "$app_pid"; then cat standalone.log; exit 1; fi
+            sleep 1
+          done
+          python3 -c 'import json; assert json.load(open("status.json"))["mode"] == "BACKTEST"'
       - name: Summarize Java coverage
         run: |
           python3 - <<'PY'
@@ -34,6 +47,13 @@ jobs:
               covered, missed = int(counter.get('covered')), int(counter.get('missed'))
               print(f'{kind} coverage: {covered}/{covered + missed} ({100 * covered / (covered + missed):.2f}%)')
           PY
+      - name: Upload standalone application
+        uses: actions/upload-artifact@v4
+        with:
+          name: standalone-jar
+          path: build/libs/quant-engine-test-0.0.1-SNAPSHOT.jar
+          if-no-files-found: error
+          retention-days: 7
       - name: Upload JaCoCo report
         uses: actions/upload-artifact@v4
         with:

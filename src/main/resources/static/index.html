@@ -14,9 +14,9 @@
     <div class="topbar-inner">
       <div class="brand">
         <span class="brand-symbol" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M5 22l8-9 6 6 8-13" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 6h6v6" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-        <div><strong>quant<span>engine</span></strong><small>BACKTEST CONSOLE</small></div>
+        <div><strong>quant<span>engine</span></strong><small>TRADING CONSOLE</small></div>
       </div>
-      <div class="topbar-side"><span class="research-tag">RESEARCH ONLY</span><span class="local-tag"><span class="online-dot"></span> Local environment</span></div>
+      <div class="topbar-side"><span class="research-tag" id="runtimeMode">Checking mode…</span><span class="local-tag"><span class="online-dot"></span> Local environment</span></div>
     </div>
   </header>
 
@@ -144,6 +144,15 @@
       </div>
     </section>
   </main>
-  <footer class="page-footer">quant-engine-test · Local historical research console · No live order placement</footer>
+  <section class="runtime-panel" aria-label="Trading runtime">
+    <h2>Market runner</h2><p id="runtimeStatus">Checking runner…</p>
+    <details><summary>Recent orders and fills</summary><pre id="runtimeEvents"></pre></details>
+    <h2>Index options backtest</h2>
+    <form id="optionReplay"><label for="optionRequest">Historical replay JSON</label>
+      <input type="file" id="optionRequest" accept=".json,application/json" required>
+      <button type="submit">Run options backtest</button></form>
+    <pre id="optionResult" aria-live="polite"></pre>
+  </section>
+  <footer class="page-footer">quant-engine-test · Standalone Angel One trading console</footer>
 </body>
 </html>

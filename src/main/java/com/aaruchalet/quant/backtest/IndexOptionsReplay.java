@@ -54,7 +54,9 @@ public final class IndexOptionsReplay {
             return selection < 0 || selection >= strikes.size() ? null : strikes.get((int) selection);
         }
     }
-    public record Frame(Candle candle, Chain chain) {}
+    public record Frame(Candle candle, Chain chain, Candle indexCandle) {
+        public Frame(Candle candle, Chain chain) { this(candle, chain, null); }
+    }
     public record Series(String signalSymbol, List<Frame> frames) {}
     public record Session(LocalDate date, Map<Index, Series> markets) {}
     public record Request(List<Session> sessions) {}
@@ -129,7 +131,7 @@ public final class IndexOptionsReplay {
                             }
                         }
                     }
-                    previous.put(index, signals.computeIfAbsent(index, k -> new V2SignalState(strategy)).onClose(frame.candle));
+                    previous.put(index, signals.computeIfAbsent(index, k -> new V2SignalState(strategy)).onClose(frame.indexCandle == null ? frame.candle : frame.indexCandle, frame.candle));
                 }
             }
             days.add(new Day(session.date, spend, options.dailyBudget().subtract(spend), pnl));
@@ -142,16 +144,18 @@ public final class IndexOptionsReplay {
         for (var entry : session.markets.entrySet()) {
             Index index = entry.getKey();
             Series series = entry.getValue();
-            String symbol = index == Index.NIFTY ? options.niftySignal() : options.sensexSignal();
+            String symbol = index == Index.NIFTY ? options.niftyProxy() : options.sensexProxy();
             if (series == null || !symbol.equals(series.signalSymbol) || series.frames == null || series.frames.size() != count)
                 throw new IllegalArgumentException("Expected complete session of " + symbol + " candles for " + index);
             boolean volume = false;
+            boolean indexBars = series.frames.getFirst() != null && series.frames.getFirst().indexCandle != null;
             LocalDate expiry = null;
             for (int i = 0; i < count; i++) {
                 var at = session.date.atTime(strategy.marketOpen()).plusMinutes(5L * i);
                 Frame f = series.frames.get(i);
                 if (f == null || f.candle == null || !at.equals(f.candle.openTime()))
                     throw new IllegalArgumentException("Missing or misaligned signal candle at " + at);
+                if ((f.indexCandle != null) != indexBars) throw new IllegalArgumentException("Mixed signal series within a session");
                 volume |= f.candle.volume() > 0;
                 if (f.chain == null) continue;
                 if (!at.equals(f.chain.asOf) || f.chain.index != index || expiry != null && !expiry.equals(f.chain.expiry))
@@ -176,16 +180,8 @@ public final class IndexOptionsReplay {
             skips.add(new Skip(at, index, "EXIT_BID_UNAVAILABLE"));
             return null;
         }
-        long cap = Math.min(options.maximumLots(), depth / index.lotSize);
+        long low = options.lots(index, book.ask, depth, available);
         BigDecimal lotPremium = book.ask.multiply(BigDecimal.valueOf(index.lotSize));
-        // Per-order fees are monotone. Binary search remains bounded for large configured caps.
-        long low = 0, high = cap;
-        while (low < high) {
-            long lots = (low + high + 1) / 2;
-            var premium = lotPremium.multiply(BigDecimal.valueOf(lots));
-            if (premium.add(options.fee(index, premium, true)).compareTo(available) <= 0) low = lots;
-            else high = lots - 1;
-        }
         if (low == 0) {
             skips.add(new Skip(at, index, "DAILY_BUDGET"));
             return null;
