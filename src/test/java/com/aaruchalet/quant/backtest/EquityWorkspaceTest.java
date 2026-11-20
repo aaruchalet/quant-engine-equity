@@ -46,11 +46,13 @@ class EquityWorkspaceTest {
     }
 
     @Test void uploadedEquityCsvRunsLocallyWithNoBrokerOrServerFileNavigation() throws Exception {
-        var csv=new StringBuilder("timestamp,open,high,low,close,volume\n");
+        var csv=new StringBuilder("timestamp,open,high,low,close,volume
+");
         var date=LocalDate.of(2026,11,18);
         for(int i=0;i<69;i++) {
             var at=date.atTime(9,15).plusMinutes(i*5L);
-            csv.append(at).append(",100,101,99,100,1000\n");
+            csv.append(at).append(",100,101,99,100,1000
+");
         }
         var file=new MockMultipartFile("file","test.csv","text/csv",
                 csv.toString().getBytes(StandardCharsets.UTF_8));
@@ -73,8 +75,9 @@ class EquityWorkspaceTest {
             assertTrue(page.contains("id=\"equityQuery\""));
             assertTrue(page.contains("id=\"equityBacktest\""));
             assertTrue(js.contains("/api/trading/indices/"));
-            assertTrue(js.contains("/api/equity/market/screen"));
-            assertTrue(js.contains("/api/equity/market/quote/"));
+            assertTrue(js.contains("/api/equity/discover"));
+            assertTrue(js.contains("/api/equity/eod/"));
+            assertTrue(js.contains("/api/equity/lookup"));
             assertTrue(js.contains("/api/equity/backtest"));
             assertFalse(js.contains("/api/backtests/vwap-ema-v2/options/"));
         }
