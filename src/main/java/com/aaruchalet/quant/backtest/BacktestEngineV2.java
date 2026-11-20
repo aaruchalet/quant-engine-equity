@@ -21,7 +21,7 @@ public final class BacktestEngineV2 {
 
     public BacktestReport run(CsvHistoryRepository.History history, StrategyConfig request,
                               VwapEmaV2Config cfg) {
-        IndicatorState indicators = new IndicatorState(cfg.fastEma(), cfg.slowEma(), cfg.rsiPeriod());
+        V2SignalState signals = new V2SignalState(cfg);
         List<Trade> trades = new ArrayList<>();
         List<EquityPoint> curve = new ArrayList<>();
         Set<LocalDate> tested = new HashSet<>();
@@ -30,8 +30,6 @@ public final class BacktestEngineV2 {
         Position position = null;
         PendingSignal pending = null;
         ExitReason pendingExit = null;
-        boolean bullishCrossActive = false, bearishCrossActive = false;
-        Double lastFast = null, lastSlow = null;
         LocalDate priorDate = null;
         double dailyPnl = 0;
         int entriesToday = 0, processed = 0;
@@ -46,10 +44,6 @@ public final class BacktestEngineV2 {
                 priorDate = date;
                 pending = null;
                 pendingExit = null;
-                bullishCrossActive = false;
-                bearishCrossActive = false;
-                lastFast = null;
-                lastSlow = null;
                 dailyPnl = 0;
                 entriesToday = 0;
             }
@@ -121,19 +115,8 @@ public final class BacktestEngineV2 {
             }
 
             // Only after the candle is COMPLETE do EMA/RSI/VWAP snapshots become known.
-            IndicatorState.Snapshot s=indicators.add(bar);
+            var s = signals.onClose(bar);
             if (!s.ready()) continue;
-            if (lastFast!=null && lastSlow!=null) {
-                if (lastFast<=lastSlow && s.emaFast()>s.emaSlow()) {
-                    bullishCrossActive=true; bearishCrossActive=false;
-                } else if (lastFast>=lastSlow && s.emaFast()<s.emaSlow()) {
-                    bearishCrossActive=true; bullishCrossActive=false;
-                }
-            }
-            lastFast=s.emaFast(); lastSlow=s.emaSlow();
-            // Cross-session or no-crossover positive EMA alignment alone is insufficient.
-            if (s.emaFast()<=s.emaSlow()) bullishCrossActive=false;
-            if (s.emaFast()>=s.emaSlow()) bearishCrossActive=false;
             if (!inRange || time.equals(cfg.squareOff())) continue;
 
             LocalTime decisionAt=bar.closeTime().toLocalTime();
@@ -149,25 +132,13 @@ public final class BacktestEngineV2 {
                             ((position.side()==Side.LONG && bar.close()<s.vwap()) ||
                              (position.side()==Side.SHORT && bar.close()>s.vwap()))) pendingExit=ExitReason.VWAP_INVALIDATION;
                     if (pendingExit==null && cfg.exitOnEmaReversal() &&
-                            ((position.side()==Side.LONG && bearishCrossActive) ||
-                             (position.side()==Side.SHORT && bullishCrossActive))) pendingExit=ExitReason.EMA_REVERSAL;
+                            ((position.side()==Side.LONG && s.cross()==Side.SHORT) ||
+                             (position.side()==Side.SHORT && s.cross()==Side.LONG))) pendingExit=ExitReason.EMA_REVERSAL;
                 }
                 continue;
             }
             if (!eligible || pendingExit!=null) continue;
-            // FIRST: confirmed current-session EMA crossover and continued alignment.
-            boolean longEma=bullishCrossActive && s.emaFast()>s.emaSlow();
-            boolean shortEma=cfg.shortsEnabled() && bearishCrossActive && s.emaFast()<s.emaSlow();
-            // SECOND: strict RSI entry threshold (not an RSI-based exit).
-            boolean longRsi=cfg.rsiEnabled() && s.rsi()>cfg.longRsiAbove();
-            boolean shortRsi=cfg.rsiEnabled() && s.rsi()<cfg.shortRsiBelow();
-            if (!((longEma && longRsi)||(shortEma && shortRsi))) continue;
-            // LAST: the completed candle must close on the correct side of VWAP.
-            if (longEma && longRsi && confirmsVwapSide(bar, s.vwap(), Side.LONG)) {
-                pending=new PendingSignal(Side.LONG,s.vwap());
-            } else if (shortEma && shortRsi && confirmsVwapSide(bar, s.vwap(), Side.SHORT)) {
-                pending=new PendingSignal(Side.SHORT,s.vwap());
-            }
+            if (s.entry()!=null) pending=new PendingSignal(s.entry(),s.vwap());
         }
         if (position!=null)
             throw new IllegalStateException("V2 missing authentic square-off opening-price candle");

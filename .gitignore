@@ -17,3 +17,6 @@ data/cache/
 
 __pycache__/
 *.pyc
+
+# Local option-chain snapshots and replay payloads
+data/options/

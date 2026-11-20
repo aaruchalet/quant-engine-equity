@@ -275,3 +275,27 @@ This is an estimate per simulated order. It does not apply historical rate chang
 ### Exit reason labels
 
 Legacy V1 labels the loss of any part of its combined entry condition `TREND_REVERSAL`, even without an EMA reversal. V2 optional VWAP and EMA exits are disabled by default. If enabled, they are reported as `VWAP_INVALIDATION` and `EMA_REVERSAL`; when both trigger on the same close, VWAP invalidation takes precedence. Stop, target and square-off retain their own labels.
+
+## NIFTY and SENSEX option replay
+
+The paper endpoint `POST /api/backtests/vwap-ema-v2/options` buys calls for bullish V2 signals and puts for bearish signals. Set the shared daily entry budget, lot cap, signed strike offsets, signal ETF symbols and Angel One Plus options fees in [config/index-options.yml](config/index-options.yml). Defaults are ₹15,000, up to two lots, ATM calls and puts one listed strike below ATM. A NIFTY lot is 65 units and a SENSEX lot is 20. The existing strategy YAML controls signals, stops, targets and hours. The trade report returns contract identity, lots, quantity, entry/exit premiums, stop, target, fees and exit reason, plus spend and remaining budget per day.
+
+1. Prepare one signal ETF OHLCV CSV per index in the existing history CSV layout. Supply every five-minute bar from configured market open through square-off, inclusive. Provide index spot and full option-chain snapshots for a single chosen expiry at the actual IST bar opens. Include bid and ask quantities in **underlying units**. Keep licensed inputs in `data/options/`.
+2. For NIFTY, choose the expiry on the [NSE option-chain page](https://www.nseindia.com/option-chain) and download the CSV. Convert each snapshot using the metadata actually displayed for that capture. Supply the depth unit used by your export and lot size from the dated contract master. For SENSEX use the [BSE derivatives chain](https://www.bseindia.com/markets/Derivatives/DeriReports/DeriOptionchain.html) or your entitled feed and normalize it to the same JSON format.
+3. Put one chain per line in each index's JSONL file. A chain has `index`, `asOf` (IST local time), `expiry`, `lotSize`, `spot` and `strikes`. Each strike contains `strike`, `ce` and `pe`; each book contains `bid`, `bidQuantity`, `ask`, `askQuantity`. Keep unquoted strikes in the ladder with a null book or a zero-depth side. The server rejects stale snapshots. A single end-of-day download cannot stand in for intraday history.
+4. Build the request and POST it to the local service. Include both markets in one request to share the daily budget. Omit a market argument to replay one index.
+
+```bash
+python3 scripts/nse_option_chain.py data/options/nse.csv \
+  --as-of "$SNAPSHOT_IST" --expiry "$CONTRACT_EXPIRY" --spot "$INDEX_SPOT" \
+  --lot-size "$MASTER_LOT_SIZE" --depth-unit "$SOURCE_DEPTH_UNIT" >> data/options/nifty.jsonl
+
+python3 scripts/build_options_replay.py \
+  --market NIFTY NIFTYBEES data/options/niftybees.csv data/options/nifty.jsonl \
+  --market SENSEX SENSEXETF data/options/sensexetf.csv data/options/sensex.jsonl \
+  > data/options/request.json
+curl --fail-with-body -H 'Content-Type: application/json' \
+  --data-binary @data/options/request.json http://127.0.0.1:8081/api/backtests/vwap-ema-v2/options
+```
+
+The replay reads the book at entry and each subsequent five-minute observation. Stop fills can gap through the configured level. For reproduction on another date or brokerage plan, verify contract sizes and adjust the options fee YAML against the applicable [Angel One tariff](https://assist.angelone.in/assist/plans-and-pricing). The ETF dashboard continues to report ETF-unit trades. The options route requires separately supplied option quotes.
