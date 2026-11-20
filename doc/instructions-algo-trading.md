@@ -49,7 +49,7 @@ Implement validated, immutable, versioned strategy configurations and the same d
 
 Required presets:
 
-1. **EMA + VWAP Trend Following**: bullish EMA9 > EMA20, close > session VWAP, RSI in **55–75**; optional relative-volume >= **1.2**, pivot P and bullish confirmation. Bearish mirror: EMA9 < EMA20, close < VWAP, RSI **25–45**, with short eligibility governed by instrument/regulations; short trades **off by default**.
+1. **VWAP Third Bounce + EMA Crossover V2**: two prior qualifying VWAP bounces, signal on third; confirmed EMA9/20 same-session crossover; LONG above VWAP with RSI14 **>50**, SHORT below VWAP with RSI14 **<50**; independent SL/TP and disabled RSI exits. Keep original legacy V1 for reproducibility; see §3A.
 2. **Fibonacci Pivot Breakout**: confirmed R1 (or chosen resistance) breakout / S1 support breakdown, optional retest, candle-close buffer, volume, EMA, VWAP and RSI filters.
 3. **EMA Pullback + VWAP Reclaim**: prevailing EMA trend, pullback toward configurable EMA/VWAP line, confirmed reclaim/rejection and RSI.
 4. **High-Volume Momentum Scalping**: 5m momentum/continuation breakout with volume confirmation and optional 15m trend alignment.
@@ -59,28 +59,58 @@ Never repeat a signal on every bar just because a condition stays true: use fals
 
 Optional rule-based **confluence score** (not a calibrated probability): EMA **25**, VWAP **20**, RSI **15**, Volume **20**, Pivot **20** = 100 total. Suggested candidate threshold 65, strong candidate threshold 80; configurable. Display satisfied and failed conditions, entry reference, stop, target, R:R, signal timestamp and WAIT/NO TRADE when blocked. A score never overrides mandatory risk gates.
 
-## 4. Mandatory intraday schedule (Asia/Kolkata)
 
-All times must be server-side validated, configurable, persisted, and consistently used in backtests/paper/live permission checks:
+## 3A. New configurable VWAP third-bounce / EMA-crossover strategy (requested 2026-11-20)
 
-| Rule | Default IST |
+**Specification status:** This is the NEXT strategy contract, not an implemented or activated feature. Preserve previous simulation as **LEGACY_EMA_VWAP_RSI_V1** with its original parameters and results. Call the new rule set **VWAP_BOUNCE_EMA_V2**. Never relabel the previous six-month backtest as V2.
+
+**Mandatory V2 entry conditions, evaluated together (AND) on completed candles:**
+
+- **VWAP side:** LONG only when the confirmed signal close is **strictly above** session VWAP; SHORT only when **strictly below**. Before an actual next-bar entry fill, recheck the open/fill price against the latest completed VWAP value, cancelling the entry if the correct side is lost. Never create a long entry below/equal VWAP or a short entry above/equal VWAP. Intrabar movement of an already-open position cannot be guaranteed to remain on one side; model gaps and exits honestly.
+- **Third bounce:** Before a LONG, detect **two** distinct prior same-session VWAP support bounces and allow a signal only on the **third** confirmed support bounce. A long bounce candle has low at/below VWAP (with configured tolerance) and confirmed close above VWAP. A SHORT requires two prior same-session resistance rejections and its third rejection (high at/above VWAP, confirmed close below VWAP). Default tolerance **0 bps** means actual touch; tolerance is configurable. Reset counts on a new session, wrong-side confirmed close, or signal consumption. Do not use future candles, a guessed next bounce, or repeated counts on the same bar.
+- **EMA crossover:** Default fast **9** and slow **20**. LONG requires a **confirmed bullish crossover** in the current session at or before the third bounce, with fast EMA still above slow; SHORT requires a confirmed bearish crossover with fast still below slow. The historical existence of EMA9 > EMA20 alone does not count as a fresh crossover. Track crossover timestamps, opposite-cross resets and configurable scope/lookback. Use previous/current completed EMA samples to detect crossings.
+- **RSI entry:** Filter **enabled**, Wilder period **14**, LONG RSI **>50**, SHORT RSI **<50**, exactly 50 is ineligible. RSI exit **disabled** by default. Store short-exit-above **55** for future opt-in. **Long-exit-below was not specified numerically**; leave that setting null/unset, and reject enabling a long RSI exit until configured. Do not exit merely because the original RSI entry filter becomes false while RSI exit is disabled.
+- **Exits:** Independent stop-loss enabled at **1.0% of actual entry price**, take-profit enabled at **2.0% of entry price**; these are **percent-of-price** distances, not an unspecified R multiple. An optional confirmed VWAP-side invalidation exit may be enabled and must have its own distinct reason and next-open execution; do not confuse it with an EMA reversal. Generic exit on loss of ANY composite entry predicate is **off**. EMA-reversal exit is a separate opt-in switch. Stop-first when stop and target both hit in the same OHLC candle; handle gaps conservatively.
+- **Short eligibility:** In research, short signals may be evaluated, but a LIVE short must be rejected unless the instrument, account, product and broker explicitly permit it.
+
+**Externally configured parameters (typed, validated, no hard-coded trade rules):**
+
+| Setting | Requested target |
 | --- | --- |
-| Collect candle/volume data | From **09:15** exchange open |
-| Earliest eligible *entry fill* | **09:35** (after 09:30) |
-| Last eligible new entry | **14:45** |
-| Mandatory forced intraday exit | At **14:55** candle **open**, where supported |
-| No open strategy position / activity | Before **15:00** |
-| Carry overnight | **Disabled** |
+| Trading mode | **PAPER** default; **LIVE** is an allowed configuration value only in the separately authorized parent application. Test/backtest must always remain read-only. |
+| Order type / product / validity | **MARKET / INTRADAY / DAY** |
+| Position quantity | Default **1** unit; max **10** units; max simultaneous positions **1**; validate eligible lot size, capital and exposure. |
+| Stop-loss | Enabled = **true**, mode = **PERCENT**, value = **1.0** |
+| Take-profit | Enabled = **true**, mode = **PERCENT**, value = **2.0** |
+| Max trades | **5 per day** |
+| Max daily realized loss | **₹5,000** (block new entries at or beyond threshold) |
+| Max daily realized profit | **₹10,000** (block new entries at or beyond threshold) |
+| Close position on daily loss | **false**. The daily loss gate blocks new entries, not an automatic immediate close; independent stop/target/VWAP rules and timed square-off remain active. |
+| Market/session | Timezone **Asia/Kolkata**; NSE cash session begins **09:15**; strategy evaluation starts **09:20**; earliest new-entry FILL **09:30**; last entry **14:45** (retained from earlier instructions); forced square-off **15:00**; normal equity market close **15:30**. All configurable by instrument/session. |
+| Carry-over | Configurable, **false** by default; reject overnight carry with INTRADAY product. Enabling carry requires compatible product, verified broker eligibility and explicit authorization. |
+| Logging | Level **INFO** (redact tokens, credentials and private account identifiers). |
 
-EMA and RSI may need prior-session warmup; VWAP accumulates from **09:15**, not 09:35. A 09:30–09:35 completed candle may produce the 09:35 entry decision; fill at the **next available candle open**, never at the already-observed close. Document precisely whether configuration bounds *signal time* or *fill time* and ensure the 14:45 cutoff is enforced on actual entry fills. Do not use the 14:55 candle's future high/low/close to decide an exit at 14:55 open.
+**Scheduling and compatibility details:** The exchange's normal equity session is approximately 09:15–15:30 IST, subject to instrument/segment, exchange changes and special sessions. **09:20 strategy start is NOT VWAP reset**: VWAP must still include genuine 09:15 market data. Entries must use confirmed completed 5m candles then fill at a later 5m open; earliest fill 09:30. A **15:00 square-off is intentionally earlier than the 15:30 cash-market close** and does not imply trading until close. The currently implemented V1 backtester and downloaded six-month CSV require complete 09:15–14:55 bar-open timestamps and force exits at the **14:55 open**. Implement new 15:00-bar-open historical coverage, configurable clocks, exit execution and safety tests BEFORE claiming the V2 15:00 setting works. Do not fabricate 15:00 prices from the 14:55 candle's close or future data.
 
-Respect NSE holidays, special sessions, time zone and stale/missing data; never assume weekends are trading days.
+**Reference configuration:** See **config/strategy-vwap-ema.example.yml** in each repository; it is **documentation/reference only** until an actual loader is implemented. Config must be immutable per run, validated on startup and embedded/versioned in the backtest report. Define typed schema, overrides, environment binding, UI display and tests. Never silently activate LIVE by changing a file. Parent LIVE requires explicit separate approval, authenticated operator permission, risk gate, broker checks, kill switch and order reconciliation. No test/demo/backtest call may place broker orders. If LIVE is selected for quant-engine-test, reject it explicitly.
+
+**Acceptance tests:** Long/short third-bounce counts; no early first/second bounce trade; crossover timing; strict VWAP side at both close and next-open fill; RSI strict >50/<50; RSI exit disabled; percentage stop/target; 1–10 quantity and lot validation; five-trade cap; ₹5,000/₹10,000 realized daily gates; false close-on-loss; chronological configuration and 15:00 price coverage; carry/INTRADAY conflict; PAPER/LIVE isolation; safe INFO logs; repeatable no-lookahead reports. Keep V1 regression tests intact.
+
+
+## 4. Mandatory configurable intraday schedule (Asia/Kolkata)
+
+The new V2 session defaults are **market 09:15**, **strategy start 09:20**, **entry fill start 09:30**, **last entry 14:45**, **square-off 15:00**, **normal cash-market close 15:30**, **overnight carry disabled**. These are configuration fields, never hard-coded execution constants. See §3A and the reference YAML for full details.
+
+Market data and VWAP begin at the actual **09:15** equity session open; strategy evaluation begins **09:20**. Signals use only completed candles, fill at the next eligible bar open and are blocked before 09:30. Square-off at 15:00 is a separate safety cut-off, not the exchange close; instrument-specific calendars and broker restrictions must be validated. No overnight carry with INTRADAY products.
+
+**Legacy V1:** The existing Java backtester still uses **09:35–14:45** entry and **14:55 open** square-off. The exported NIFTYBEES CSV contains bars only through **14:55 open**. V2 15:00 execution requires new real data and a revised engine; until implemented, do not claim V2 settings are active or claim its results.
+
 
 ## 5. Risk management and order-safety rules
 
-Centralize risk enforcement. Default **risk 1% of current eligible capital per trade**, **target 2R** (configurable 1:2/1:3/1:4), stop-loss required, **max five entries/day**, **3% daily realized-loss budget**, **one simultaneous position**, configurable cooldown (e.g., three 5m candles). Support percentage/points/EMA/VWAP/swing/pivot/ATR stops and fixed/multiple/trailing targets. Include cash constraints and round quantity to actual tradable lot size. Model slippage, spreads, brokerage, taxes, product type, contract selection and fees; expose assumptions in reports.
+The requested V2 defaults are **fixed quantity 1 (max 10)**, maximum one position, **1.0% percent-of-entry stop**, **2.0% percent-of-entry profit target**, maximum **5 trades/day**, realized daily loss cutoff **₹5,000**, realized daily profit cutoff **₹10,000**, and **closePositionOnDailyLoss = false**. Daily P&L caps stop additional entries; they do not, by themselves, force-close current positions when that toggle is false. Actual stop/target, allowed VWAP invalidation and mandatory square-off still apply. Make quantities, daily limits and position/exposure/risk constraints validated in external configuration. Preserve separate capital-risk sizing semantics; a 1.0% price stop is not the same as 1.0% of account equity at risk.
 
-Live order placement must be **separate, disabled by default, explicitly authorized, authenticated and idempotent**; broker acceptance != fill. Square-off must confirm actual fills and alert/escalate pending/rejected orders. Include max exposure, freshness checks, daily kill switch, partial fills and restart reconciliation. No martingale/revenge sizing. **Backtest and `quant-engine-test` must never place real broker orders.**
+Model slippage, gaps, full charges, exchange lot sizes, cash/margins, contract type and real risk exposure. The parent must gate any LIVE trading with explicit user authorization, credential isolation, idempotent orders, stale-quote safeguards, restart reconciliation and broker entitlement checks. A setting alone never authorizes sending real orders. The standalone backtester always remains order-free. Overnight carry must be rejected if product type is INTRADAY.
 
 ## 6. Backtesting requirements (initial focus: EMA + VWAP + RSI)
 
@@ -88,7 +118,7 @@ Default historical period: **six months** (explicit reproducible example **2026-
 
 - **No lookahead:** indicators update only after a bar fully closes; generated signal fills next bar open with adverse slippage; historical pivot levels use the previous completed pivot period only.
 - **Intrabar ambiguity:** if target and stop are both touched with unknown ordering, use a documented conservative stop-first assumption. Gap-through-stop fills at the bar open, not the stop price.
-- Forced square-off uses the 14:55 bar **open**, and requires that bar to be present.
+- **Legacy V1 only:** forced square-off uses the **14:55 candle open**. V2 requires configurable **15:00 square-off with actual 15:00 opening-price data**. Never silently use the old CSV for the new rule.
 - Use *exactly the same* indicator formulas, rule predicates, and trading hours for research and paper signals.
 - Validate timestamps as IST **candle opening times** and 5-minute alignment; sort/dedupe, reject invalid OHLCV, flag missing candles/sessions, prevent malformed or mixed-symbol datasets.
 - Reject missing/nonrepresentative volume for VWAP strategies rather than silently substituting spot volume.
@@ -130,7 +160,7 @@ Chart/API design in parent (when requested): instrument/candles/indicators/strat
 1. Existing repo still builds; no unrelated regressions or destroyed configurations.
 2. Standalone test service runs immediately after clone with Java 21 and its Gradle wrapper; synthetic demo needs no broker credentials or database.
 3. Five indicator formulas and warmup behavior are documented, configurable and tested before enabling their respective strategy.
-4. EMA/VWAP/RSI backtest consumes genuine, validated 5m OHLCV or explicitly labeled synthetic data, applies **09:35–14:45 entry** and **14:55 exit** with no overnight positions.
+4. Existing V1 backtest stays labeled and reproducible (09:35–14:45 entries, 14:55 open square-off). V2 is implemented only after passing §3A acceptance tests: 09:20 strategy start, 09:30 first fill, 15:00 square-off with real bar-open data, two prior VWAP bounces before third-trigger, EMA crossover, RSI >50/<50, daily INR caps and config validation.
 5. Six-month broker download uses real instrument metadata, token, valid auth, bounded requests, error handling, cache and complete-session validation.
 6. CSV export and fetch-and-backtest endpoints work as documented; failed/partial downloads are visible and never silently treated as success.
 7. Outputs are reproducible and include costs, fill model, trade reasons and skipped sessions.
@@ -148,4 +178,4 @@ Chart/API design in parent (when requested): instrument/candles/indicators/strat
 6. Provide branch, commit SHA, changed-file summary, test outcomes, run commands, example `curl`, and explicit external prerequisites.
 7. Never activate real money trading, alter production execution rules, or claim verified six-month historical results without valid source data and a completed backtest.
 
-**Primary priority:** robust historical data acquisition, mathematically correct indicators, honest reproducible backtesting, strict 09:35–14:55 IST intraday guards, and disciplined configuration—before adding more automated order features.
+**Primary priority:** preserve V1 evidence and implement the configurable VWAP-third-bounce + EMA-crossover **V2** from §3A with risk controls, validated market data and no live-order activation.
