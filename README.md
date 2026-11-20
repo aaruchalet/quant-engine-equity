@@ -298,3 +298,5 @@ curl --fail-with-body -H 'Content-Type: application/json' \
 ```
 
 The replay reads the book at entry and each subsequent five-minute observation. Stop fills can gap through the configured level. For reproduction on another date or brokerage plan, verify contract sizes and adjust the options fee YAML against the applicable [Angel One tariff](https://assist.angelone.in/assist/plans-and-pricing). The ETF dashboard continues to report ETF-unit trades. The options route requires separately supplied option quotes.
+
+For one-click index replays, put the generated request at `data/options/request.json` or configure `TRADING_HISTORY_OPTIONS_REPLAY_PATH`. Click **Run backtest** on either index tab. Importing a file overrides the local feed for that run.

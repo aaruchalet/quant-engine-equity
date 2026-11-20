@@ -24,6 +24,24 @@ function metrics(pairs) {
   for (const [k,v] of pairs) { const card = node('div',k,'metric'); card.append(node('b',v ?? '—')); el.append(card); }
   return el;
 }
+function performance(days) {
+  const panel = node('article',null,'panel');
+  panel.append(node('h2','Cumulative net P&L'));
+  if (!days.length) return panel;
+  let cumulative = 0;
+  const values = [0,...days.map(day => cumulative += day.netPnl)];
+  const low = values.reduce((a,b)=>Math.min(a,b)), high = values.reduce((a,b)=>Math.max(a,b));
+  const y = value => high === low ? 60 : 108 - 96 * (value - low) / (high - low);
+  const chart = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  chart.setAttribute('viewBox','0 0 760 120');
+  chart.setAttribute('role','img');
+  chart.setAttribute('aria-label','Cumulative net profit and loss from zero to '+money(cumulative));
+  const line = document.createElementNS(chart.namespaceURI,'polyline');
+  line.setAttribute('points',values.map((value,i)=>(4+752*i/days.length)+','+y(value)).join(' '));
+  line.setAttribute('fill','none'); line.setAttribute('stroke','#08735a'); line.setAttribute('stroke-width','3');
+  chart.append(line); panel.append(chart,node('small',days[0].date+' — '+days[days.length-1].date+' · Range '+money(low)+' to '+money(high)));
+  return panel;
+}
 function download(data, filename) {
   const button = node('button','Download report','download');
   button.onclick = () => {
@@ -52,11 +70,12 @@ function bindRun(form,out,run) {
 }
 for (const market of markets) {
   const id = market.toLowerCase(), section = byId(id);
-  section.innerHTML = '<small>HISTORICAL OPTIONS</small><h1>'+market+' options backtest</h1><p>Replay calls and puts using five-minute signals, historical premiums and quoted depth.</p><form class="upload"><label>Session replay file<input name="file" type="file" accept=".json,application/json" required></label><button>Run backtest</button></form><div aria-live="polite"><article class="empty"><h2>Backtest results</h2><p>Choose the JSON produced by build_options_replay.py to see fills, fees and daily returns.</p></article></div>';
+  section.innerHTML = '<small>HISTORICAL OPTIONS</small><h1>'+market+' options backtest</h1><p>Replay calls and puts using five-minute signals, historical premiums and quoted depth.</p><form class="upload"><label>Import replay (optional with a local feed)<input name="file" type="file" accept=".json,application/json"></label><button>Run backtest</button></form><div aria-live="polite"><article class="empty"><h2>Backtest results</h2><p>Run the local replay or import session JSON to see fills, fees and daily returns.</p></article></div>';
   const out = section.lastElementChild;
   bindRun(section.querySelector('form'),out,async input => {
-    const r = await api('/api/backtests/vwap-ema-v2/options/'+market,input);
+    const r = await api('/api/backtests/vwap-ema-v2/options/'+market+(input ? '' : '/local'),input || {});
     return [metrics([['Net P&L',money(r.days.reduce((n,d)=>n+d.netPnl,0))],['Filled trades',r.trades.length],['Sessions',r.days.length],['Skipped entries',r.skipped.length]]),
+      performance(r.days),
       table('Executed trades',['Entry (IST)','Expiry','Contract','Lots','Entry','Exit','Fees','Net P&L','Exit reason'],r.trades.map(t=>[t.position.entryAt,t.position.expiry,t.position.strike+' '+t.position.right,t.position.lots,money(t.position.entryPremium),money(t.exitPremium),money(t.position.entryFee+t.exitFee),money(t.netPnl),t.reason]),'No trades filled in this replay.'),
       table('Daily results',['Session','Entry spend','Budget remaining','Net P&L'],r.days.map(d=>[d.date,money(d.entrySpend),money(d.remainingBudget),money(d.netPnl)]),'No sessions.'),
       table('Skipped entries',['Time (IST)','Reason'],r.skipped.map(s=>[s.at,s.reason]),'No skipped entries.'),download(r,id+'-replay.json')];
