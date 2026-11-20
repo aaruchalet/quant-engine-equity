@@ -95,14 +95,14 @@ class EquityPublicMarket {
     private static Double positive(JsonNode n) {
         if(!n.isNumber() && !n.isTextual()) return null;
         try {
-            double d=Double.parseDouble(n.asText());
+            double d=Double.parseDouble(n.asText().replace(",", ""));
             return Double.isFinite(d) && d>0 ? d : null;
         } catch (NumberFormatException ex) { return null; }
     }
     private static Double finite(JsonNode n) {
         if(!n.isNumber() && !n.isTextual()) return null;
         try {
-            double d=Double.parseDouble(n.asText());
+            double d=Double.parseDouble(n.asText().replace(",", ""));
             return Double.isFinite(d)?d:null;
         } catch (NumberFormatException ex) {return null;}
     }
