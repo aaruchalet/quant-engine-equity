@@ -3,6 +3,7 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 PATH = Path(__file__).with_name('ec2_export_angel_history.py')
 SPEC = importlib.util.spec_from_file_location('history_export', PATH)
@@ -31,6 +32,39 @@ class HistoryExporterTests(unittest.TestCase):
         self.assertEqual(len(values),5)
         utc, _ = mod.validate_row(['2026-05-20T03:45:00+00:00',100,101,99,100.5,123])
         self.assertEqual(utc, timestamp)
+
+    def test_late_regular_session_candles_do_not_abort_history(self):
+        """Angel One may return bars through 15:25 even if we need only 14:55."""
+        day = dt.date(2026, 5, 20)
+        extras = [
+            [f'{day}T15:00:00+05:30', 100, 101, 99, 100.5, 123],
+            [f'{day}T15:25:00+05:30', 100, 101, 99, 100.5, 123],
+        ]
+        with mock.patch.object(mod.time, 'sleep'):
+            bars = mod.collect_history(day, day, 'token', {},
+                 fetcher=lambda _tok, _hdr, _start, _end: fake_day(day) + extras)
+        self.assertEqual(len(bars), 69)
+        self.assertIn(dt.datetime(2026, 5, 20, 14, 55), bars)
+        self.assertNotIn(dt.datetime(2026, 5, 20, 15, 0), bars)
+        self.assertNotIn(dt.datetime(2026, 5, 20, 15, 25), bars)
+
+    def test_broker_request_ends_at_strategy_cutoff(self):
+        import io
+        import json
+        response = io.BytesIO(b'{"status":true,"data":[]}')
+        with mock.patch.object(mod.urllib.request, 'urlopen', return_value=response) as call:
+            result = mod.fetch_batch('123', {}, dt.date(2026,5,20), dt.date(2026,5,20))
+            self.assertEqual(result, [])
+            payload = json.loads(call.call_args.args[0].data)
+            self.assertEqual(payload['todate'], '2026-05-20 14:55')
+
+    def test_unexpected_session_times_still_rejected(self):
+        for when in ('09:17:00', '15:30:00', '08:45:00'):
+            with self.subTest(time=when):
+                bad = [[f'2026-05-20T{when}+05:30', 100, 101, 99, 100.5, 123]]
+                with self.assertRaisesRegex(mod.DownloadError, 'unexpected candle'):
+                    mod.collect_history(dt.date(2026,5,20), dt.date(2026,5,20),
+                                        'token', {}, fetcher=lambda *args: bad)
 
     def test_invalid_prices_and_time(self):
         with self.assertRaises(mod.DownloadError):
