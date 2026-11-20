@@ -201,7 +201,7 @@ class EquityDiscovery {
         throw new IOException("No recent official EOD archive available");
     }
 
-    private void readSessions(String exchange, LocalDate start, List<Archive> days, Instant deadline)
+    synchronized void readSessions(String exchange, LocalDate start, List<Archive> days, Instant deadline)
             throws IOException, InterruptedException {
         for (int i = 0; i < 45 && days.size() < SESSIONS; i++) {
             if (Instant.now().isAfter(deadline)) throw new IOException("Discovery time limit reached");
