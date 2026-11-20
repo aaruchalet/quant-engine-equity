@@ -83,6 +83,31 @@ The script performs the following steps:
 
 Note: It cannot independently classify entirely absent weekday dates as NSE holidays. Treat the printed missing/partial-session caveats seriously. No actual historical download is performed by offline CI tests.
 
+## HTTP 403: conservative resumable downloads
+
+The Angel One historical endpoint may return HTTP 403 even after successful login, verified EC2 IP, and earlier successful windows. Some broker reports show an access-rate restriction even with low request frequencies. This is **not proof** that the API key or registered IP is invalid.
+
+The exporter now:
+
+- Throttles **new historical requests to one every 10 seconds** by default (configurable with `--request-interval`).
+- Atomically checkpoints **each completed, validated 14-day window** in `/home/ubuntu/.cache/quant-engine-test/angel-one-history/` with private directory/file permissions.
+- On the next attempt, **reuses completed checkpoints** for the same NSE symbol token and exact date windows; it never re-requests these windows unless you intentionally remove that particular cache file.
+- Stops at the first HTTP 403/429; **no automated retry loop** against a potentially restricted broker endpoint.
+- Labels the known "exceeding access rate" signature without dumping raw error bodies, JWTs, API keys or broker secrets.
+
+**The previous unsuccessful run did not use checkpoint files**, so its first three downloaded windows cannot be recovered. Subsequent successful windows will persist if a later window fails. This cache is licensed historical market data; do not commit, redistribute, or upload it without permission.
+
+If HTTP 403 continues on a low-frequency single request, **stop repeated attempts** and contact Angel One SmartAPI support at `smartapi@angelone.in`. Provide your broker client code **privately to support**, app name `Trading test`, endpoint `getCandleData`, 5-minute interval, failing time window, approximate IST request time, HTTP 403 and the registered IP `13.202.233.29`. Never send an API key, JWT, PIN or TOTP.
+
+On the Mac, use the existing launcher normally:
+
+```bash
+git pull origin main
+EC2_SSH=ubuntu@13.202.233.29 EC2_SSH_KEY="$HOME/.ssh/quant-test-ec2" ./scripts/pull-history-from-ec2.sh
+```
+
+When the broker restriction clears and the current JWT remains valid, rerunning the command picks up where the checkpointed progress ended. If the JWT expired, repeat the private Trading test login before resuming. Do not repeatedly relogin solely to bypass HTTP 403 access-rate restrictions.
+
 ## Backtest locally after a successful download
 
 The CSV is now on your Mac and uses the project's expected input format:
