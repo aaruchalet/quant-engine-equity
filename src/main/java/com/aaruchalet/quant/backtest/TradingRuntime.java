@@ -118,26 +118,48 @@ class TradingRuntime implements DisposableBean {
         if (slot.equals(evaluated) || slot.equals(s.attempted) || Duration.between(slot,now).toSeconds()>entryWindow) return;
         market.loadMaster(date);
         for (Index idx : Index.values()) {
-            var sig=market.signal(idx,slot,options,strategy).decision();
+            V2SignalState.Decision sig;
+            try {
+                sig=market.signal(idx,slot,options,strategy).decision();
+            } catch (Exception failure) {
+                trace(idx,slot,null,"DATA_UNAVAILABLE",
+                        "Signal evaluation failed: "+failure.getClass().getSimpleName());
+                throw failure;
+            }
+            trace(idx,slot,sig,"INDICATOR_CHECK",sig.reason());
             if (sig.entry()==null) continue;
             Instrument spot=market.underlying(idx,options,false), proxy=market.underlying(idx,options,true);
             var underlying=market.quotes(spot,proxy);
-            if (!sig.permitsOpen(underlying.get(proxy).ltp().doubleValue())) continue;
+            if (!sig.permitsOpen(underlying.get(proxy).ltp().doubleValue())) {
+                trace(idx,slot,sig,"BLOCKED","Fresh ETF quote failed the final VWAP-side recheck");
+                continue;
+            }
             boolean call=sig.entry()==Side.LONG;
             var contract=market.select(idx,call?Right.CE:Right.PE,underlying.get(spot).ltp(),date,
                     call?options.callOffset():options.putOffset());
-            if (contract==null) continue;
+            if (contract==null) {
+                trace(idx,slot,sig,"BLOCKED","No eligible listed option contract");
+                continue;
+            }
             BigDecimal available=options.dailyBudget().subtract(s.spent);
             if (mode==Mode.LIVE) {
                 ensureBrokerQuantity(contract,0);
                 available=available.min(decimal(market.request("user/v1/getRMS",null),"availablecash"));
             }
             var q=quote(contract);
-            if (q.ask().signum()<=0 || q.bid().signum()<=0) continue;
+            if (q.ask().signum()<=0 || q.bid().signum()<=0) {
+                trace(idx,slot,sig,"BLOCKED","No valid two-sided option market");
+                continue;
+            }
             long qty=options.lots(idx,q.ask(),Math.min(q.bidSize(),q.askSize()),available)*idx.lotSize;
-            if (qty==0) continue;
+            if (qty==0) {
+                trace(idx,slot,sig,"BLOCKED","Daily budget, broker cash, or executable depth cannot fund one lot");
+                continue;
+            }
             var submitAt=LocalDateTime.now(clock);
             if (paused() || Duration.between(slot,submitAt).toSeconds()>entryWindow || !submitAt.toLocalTime().isBefore(strategy.squareOff())) return;
+            trace(idx,slot,sig,"ORDER_INTENT","Signal approved; "+(mode==Mode.PAPER?"simulated":"broker")+
+                    " buy of "+(qty/idx.lotSize)+" lot(s) after final budget and depth checks");
             s.attempted=slot; s.contract=contract;
             submit(s,Action.BUY,qty,q.ask(),BigDecimal.ZERO);
             return;
@@ -304,8 +326,37 @@ class TradingRuntime implements DisposableBean {
         }
         String event=p.action()+" "+terminalStatus+" "+filled+" @ "+price+" "+s.contract.instrument().symbol()
                 +(s.exitReason==null?"":" "+s.exitReason);
+        Index tradedIndex=s.contract.index();
         if (s.quantity==0) { s.contract=null; s.exitReason=null; }
-        s.pending=null; journal.save(event,s); status=event;
+        s.pending=null; journal.save(event,s);
+        trace(tradedIndex,LocalDateTime.now(clock),null,"ORDER_EVENT",event);
+        status=event;
+    }
+
+    /** Read-only diagnostic events, written after the existing execution decisions; no order side effects. */
+    private void trace(Index index,LocalDateTime slot,V2SignalState.Decision d,
+                       String stage,String detail) throws Exception {
+        if (journal==null) return;
+        var item=new LinkedHashMap<String,Object>();
+        item.put("at",clock.instant().toString());
+        item.put("candleOpen",slot.minusMinutes(5).toString());
+        item.put("stage",stage);
+        item.put("detail",detail);
+        if (d!=null) {
+            item.put("ready",d.ready());
+            item.put("ema9",d.emaFast());
+            item.put("ema20",d.emaSlow());
+            item.put("rsi14",d.rsi());
+            item.put("sessionVwap",d.vwap());
+            item.put("confirmedCrossover",d.cross()==null?"NONE":d.cross().name());
+            item.put("candidate",d.entry()==null?"NONE":d.entry()==Side.LONG?"CALL":"PUT");
+            item.put("emaGate",d.cross()!=null);
+            item.put("rsiGate",d.cross()!=null && d.rsi()!=null
+                    && (d.cross()==Side.LONG?d.rsi()>strategy.longRsiAbove():
+                        strategy.shortsEnabled() && d.rsi()<strategy.shortRsiBelow()));
+            item.put("vwapFinalGate",d.entry()!=null);
+        }
+        journal.trace(index,item);
     }
 
     private boolean paused() { return pauseFile!=null && java.nio.file.Files.exists(pauseFile); }
@@ -350,6 +401,62 @@ class TradingRuntime implements DisposableBean {
         }
         return result;
     }
+    /** Dedicated read-only NIFTY/SENSEX dashboard. Mode is controlled exclusively by startup YAML. */
+    Map<String,Object> indexSnapshot(Index index) throws Exception {
+        var result=new LinkedHashMap<String,Object>();
+        result.put("index",index.name());
+        result.put("mode",mode.name());
+        result.put("enabled",mode!=Mode.BACKTEST && !preflightOnly);
+        result.put("status",mode==Mode.BACKTEST?"Trading inactive: set trading.mode to PAPER or LIVE in application.yml":status);
+        result.put("updated",updated);
+        result.put("signalInstrument",index==Index.NIFTY?options.niftySignal():options.sensexSignal());
+        result.put("vwapInstrument",index==Index.NIFTY?options.niftyProxy():options.sensexProxy());
+        result.put("lotSize",index.lotSize);
+        result.put("maximumLots",options.maximumLots()==Integer.MAX_VALUE?"APPLICATION":options.maximumLots());
+        result.put("dailyBudget",options.dailyBudget());
+        result.put("strategy",Map.of(
+                "identifier","VWAP_BOUNCE_EMA_V2", "timeframe","5 minutes",
+                "emaFast",strategy.fastEma(),"emaSlow",strategy.slowEma(),"rsiPeriod",strategy.rsiPeriod(),
+                "longRsiAbove",strategy.longRsiAbove(),"shortRsiBelow",strategy.shortRsiBelow(),
+                "stopPercent",strategy.stopPercent(),"targetPercent",strategy.targetPercent(),
+                "firstEntry",strategy.entryStart().toString(),"lastEntry",strategy.lastEntry().toString(),
+                "squareOff",strategy.squareOff().toString(),"maximumTradesPerDay",strategy.maxTradesPerDay(),
+                "dailyLossCutoff",strategy.maxDailyLossInr(),"dailyProfitCutoff",strategy.maxDailyProfitInr()));
+        if(journal!=null) {
+            var state=journal.read();
+            result.put("day",state.day);
+            result.put("spent",state.spent);
+            result.put("remainingBudget",options.dailyBudget().subtract(state.spent).max(BigDecimal.ZERO));
+            result.put("dailyPnl",state.pnl);
+            result.put("entries",state.entries);
+            result.put("paused",paused() || state.entryPaused);
+            result.put("halted",state.halted);
+            boolean owns=state.contract!=null && state.contract.index()==index;
+            result.put("position",owns?state.contract:null);
+            result.put("quantity",owns?state.quantity:0);
+            result.put("averagePremium",owns?state.average:null);
+            result.put("stop",owns?state.stop:null);
+            result.put("target",owns?state.target:null);
+            result.put("pending",owns && state.pending!=null?state.pending.action():null);
+            var now=LocalDateTime.now(clock);
+            var gates=new LinkedHashMap<String,Object>();
+            gates.put("tradingSession",now.getDayOfWeek().getValue()<=5 &&
+                    !now.toLocalTime().isBefore(strategy.marketOpen()) && now.toLocalTime().isBefore(strategy.marketClose()));
+            gates.put("entryWindow",!now.toLocalTime().isBefore(strategy.entryStart()) &&
+                    !now.toLocalTime().isAfter(strategy.lastEntry()));
+            gates.put("entriesAvailable",state.entries<strategy.maxTradesPerDay());
+            gates.put("dailyLossNotReached",state.pnl.compareTo(BigDecimal.valueOf(-strategy.maxDailyLossInr()))>0);
+            gates.put("dailyProfitNotReached",state.pnl.compareTo(BigDecimal.valueOf(strategy.maxDailyProfitInr()))<0);
+            gates.put("sharedPositionAvailable",state.quantity==0 && state.pending==null);
+            gates.put("entriesNotPaused",!paused() && !state.entryPaused && state.halted==null);
+            result.put("riskChecks",gates);
+            result.put("evaluations",journal.traces(index));
+        } else {
+            result.put("riskChecks",Map.of());
+            result.put("evaluations",List.of());
+        }
+        return result;
+    }
     @Override public void destroy() throws Exception { if (journal!=null) journal.close(); }
 }
 
@@ -359,4 +466,6 @@ class RuntimeStatusController {
     RuntimeStatusController(TradingRuntime runtime) { this.runtime=runtime; }
     @GetMapping("/api/trading/status")
     Map<String,Object> status() throws Exception { return runtime.snapshot(); }
+    @GetMapping("/api/trading/indices/{index}")
+    Map<String,Object> indexStatus(@PathVariable Index index) throws Exception { return runtime.indexSnapshot(index); }
 }
