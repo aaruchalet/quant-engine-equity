@@ -83,6 +83,25 @@ The script performs the following steps:
 
 Note: It cannot independently classify entirely absent weekday dates as NSE holidays. Treat the printed missing/partial-session caveats seriously. No actual historical download is performed by offline CI tests.
 
+## V2 historical CSV with genuine 15:00 opening price
+
+The original V1 download intentionally contains **09:15–14:55** candle opens and must be preserved for reproducibility. The new **VWAP_BOUNCE_EMA_V2** backtest can square off at **15:00** only when the vendor provides a *real 15:00 five-minute candle opening-price record*.
+
+Run on Mac (in the `quant-engine-test` root) after `git pull origin main`, using your already-authorized SSH identity:
+
+```bash
+V2_INCLUDE_1500=1 \
+EC2_SSH=ubuntu@13.202.233.29 \
+EC2_SSH_KEY="$HOME/.ssh/quant-test-ec2" \
+./scripts/pull-history-from-ec2.sh
+```
+
+This opt-in mode adds `--v2-1500` to the remote exporter, requests bars through **15:00 IST**, and requires the 70 real bar opens from 09:15 to 15:00 for each included session. It stores V2 checkpoints separately (filenames with `-1500.json`), respects 10-second minimum intervals and stops on vendor rate restrictions. The V1 cached data and V1 CSV are not overwritten.
+
+New expected V2 output: `data/niftybees-5min-2026-05-20-to-2026-11-19-v2-1500.csv`, created only after all windows pass coverage validation. Historical-data availability depends on Angel One permissions; the exporter will never fabricate a 15:00 opening price or attempt an order.
+
+After success, set `HISTORY_CSV_PATH` to that filename, start `./gradlew bootRun`, select **V2** on `http://127.0.0.1:8081/`, and run your local backtest. The original V1 file is also usable for V1 runs. Never interpret old V1 performance as new V2 performance.
+
 ## HTTP 403: conservative resumable downloads
 
 The Angel One historical endpoint may return HTTP 403 even after successful login, verified EC2 IP, and earlier successful windows. Some broker reports show an access-rate restriction even with low request frequencies. This is **not proof** that the API key or registered IP is invalid.
