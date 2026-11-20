@@ -21,8 +21,9 @@ class HistoryExporterTests(unittest.TestCase):
     def test_egress_denies_unregistered(self):
         with self.assertRaisesRegex(mod.DownloadError, 'not one of the registered'):
             mod.verify_egress('182.77.77.184')
-        mod.verify_egress('92.62.121.100')
-        mod.verify_egress('92.62.121.166')
+        with self.assertRaises(mod.DownloadError):
+            mod.verify_egress('92.62.121.100')
+        mod.verify_egress('13.202.233.29')
 
     def test_candle_timestamp_normalization(self):
         timestamp, values = mod.validate_row(['2026-05-20T09:15:00+05:30',100,101,99,100.5,123])
@@ -90,6 +91,29 @@ class HistoryExporterTests(unittest.TestCase):
             items=mod.read_runtime_config(file)
             self.assertEqual(items['ANGEL_ONE_API_KEY'],'abc123')
             self.assertNotIn('DATABASE_PASSWORD',items)
+
+    def test_dedicated_credentials_are_isolated_and_owner_only(self):
+        with tempfile.TemporaryDirectory() as td:
+            path=Path(td)/'trading-test.env'
+            path.write_text(
+                'ANGEL_ONE_API_KEY=app-specific-key\n'
+                'ANGEL_ONE_LOCAL_IP=172.31.2.40\n'
+                'ANGEL_ONE_MAC_ADDRESS=00:11:22:33:44:55\n'
+                'ANGEL_ONE_JWT_TOKEN=abc.def.ghi\n'
+            )
+            path.chmod(0o600)
+            headers, token=mod.load_credentials(None,'13.202.233.29', Path('/does/not/exist'), credentials_file=path)
+            self.assertEqual(headers['X-PrivateKey'],'app-specific-key')
+            self.assertEqual(headers['X-ClientPublicIP'],'13.202.233.29')
+            self.assertEqual(headers['Authorization'],'Bearer abc.def.ghi')
+            self.assertEqual(token,'')
+            path.chmod(0o644)
+            with self.assertRaisesRegex(mod.DownloadError,'mode 0600'):
+                mod.load_credentials(None,'13.202.233.29', Path('/does/not/exist'), credentials_file=path)
+            path.chmod(0o600)
+            path.unlink()
+            with self.assertRaisesRegex(mod.DownloadError,'file missing'):
+                mod.load_credentials(None,'13.202.233.29', Path('/does/not/exist'), credentials_file=path)
 
 
 if __name__=='__main__':unittest.main()
