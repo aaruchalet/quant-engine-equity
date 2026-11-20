@@ -18,6 +18,25 @@ Before running, ensure the EC2 host is actually permitted to send historical req
 
 ## Configure separate Trading test credentials on EC2
 
+**Recommended: interactive authentication with no manual JWT copying.** From your **Mac Terminal** (in the local `quant-engine-test` clone), upload only the helper's source code to EC2, then run it in an interactive EC2 shell:
+
+```bash
+git pull origin main
+scp -i ~/.ssh/quant-test-ec2 scripts/ec2_login_trading_test.py ubuntu@13.202.233.29:/home/ubuntu/ec2_login_trading_test.py
+ssh -t -i ~/.ssh/quant-test-ec2 ubuntu@13.202.233.29 'python3 /home/ubuntu/ec2_login_trading_test.py'
+```
+
+The helper verifies EC2 egress is `13.202.233.29`, detects the EC2 local network identity, then prompts **without echoing input** for:
+1. **Trading test** app-specific SmartAPI API key (not either production app's key).
+2. Angel One **client code**.
+3. PIN/password.
+4. Fresh six-digit **TOTP** from your authenticator app.
+
+It authenticates through the broker's official `loginByPassword` endpoint, stores the API key and JWT privately on **EC2 only** in `/home/ubuntu/.config/quant-engine-test/trading-test.env` (mode 0600), and does not print or transmit the secrets to the Mac or GitHub. Never share the key, PIN, TOTP, JWT, or entire `.env` file in tickets or chat. Angel One sessions expire; rerun interactive login on the day of download when necessary. Login can affect session state for the same broker account, so avoid interrupting an active trading session.
+
+**Alternative: manually populate the file** if you've already generated a Trading test JWT using an authorized broker client:
+
+
 The Mac launcher reads only `/home/ubuntu/.config/quant-engine-test/trading-test.env` from EC2. It never reuses the production parent session by default. Before downloading, create this file **on EC2**, supplying values locally and privately:
 
 ```bash
@@ -44,7 +63,7 @@ From your local clone of **`quant-engine-test`**:
 
 ```bash
 git pull origin main
-EC2_SSH=ubuntu@ACTUAL_EC2_PUBLIC_IP ./scripts/pull-history-from-ec2.sh
+EC2_SSH=ubuntu@13.202.233.29 EC2_SSH_KEY="$HOME/.ssh/quant-test-ec2" ./scripts/pull-history-from-ec2.sh
 ```
 
 **Find the host before running:** AWS Console → EC2 → Region `ap-south-1` → Instances → instance tagged `quant-engine-prod` → **Public IPv4 address**. The application domain `quant-engine.aaruchalet.com` is not a verified SSH endpoint. If your SSH setup uses an alias, e.g. `quant-prod`, set `EC2_SSH=quant-prod`. Configure your private SSH key or AWS-managed access **outside this repository**. Your production CI currently opens SSH only temporarily from its own runner, so direct SSH from the Mac may be blocked.
