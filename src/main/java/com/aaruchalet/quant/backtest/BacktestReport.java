@@ -13,7 +13,7 @@ public record BacktestReport(
         List<Trade> trades, List<EquityPoint> closedTradeEquityCurve
 ) {
     public enum Side { LONG, SHORT }
-    public enum ExitReason { STOP_LOSS, TARGET, TREND_REVERSAL, SQUARE_OFF }
+    public enum ExitReason { STOP_LOSS, TARGET, TREND_REVERSAL, VWAP_INVALIDATION, EMA_REVERSAL, SQUARE_OFF }
     public record Trade(Side side, LocalDateTime entryAt, LocalDateTime exitAt,
                         double entryPrice, double exitPrice, long quantity,
                         double stopLoss, double target, ExitReason exitReason,

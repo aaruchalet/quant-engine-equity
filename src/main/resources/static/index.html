@@ -40,10 +40,10 @@
           <label for="strategyVersion">Strategy version</label>
           <select id="strategyVersion" name="strategyVersion">
             <option value="v1">V1 · Legacy EMA/VWAP/RSI (14:55)</option>
-            <option value="v2">V2 · EMA → RSI → VWAP bounce (15:00)</option>
+            <option value="v2">V2 · EMA → RSI → VWAP side (15:00)</option>
           </select>
         </div>
-        <p id="v2Explanation" class="strategy-note" hidden>V2: EMA 9/20 crossover and RSI (long &gt;50, short &lt;50) first; ONE VWAP touch-and-close is the LAST gate. Configured in <code>config/strategy-vwap-ema.example.yml</code>. Fixed 1–10 quantity, 1% stop, 2% target and 15:00 square-off. V2 requires genuine 15:00 OPEN candles (the earlier CSV ends at 14:55).</p>
+        <p id="v2Explanation" class="strategy-note" hidden>V2: EMA crossover and RSI first; the candle must close above VWAP for long or below VWAP for short. Touching VWAP is optional. Periods, thresholds, quantity, risk limits, session times and estimated Angel One NSE intraday fees come from the V2 YAML configuration. The CSV must contain genuine opening prices through the configured square-off.</p>
         <div class="section-heading"><span>01</span> Dataset</div>
         <div class="field">
           <label for="symbol">Instrument</label>
@@ -89,7 +89,7 @@
 
     <section class="workspace" aria-labelledby="workspaceTitle">
       <div class="workspace-heading">
-        <div><span class="eyebrow">STRATEGY ANALYTICS</span><h2 id="workspaceTitle">Performance overview</h2><p class="muted">NIFTYBEES · EMA 9/20 + session VWAP + RSI 14 · IST</p></div>
+        <div><span class="eyebrow">STRATEGY ANALYTICS</span><h2 id="workspaceTitle">Performance overview</h2><p class="muted">Five-minute historical simulation · IST</p></div>
         <div class="report-actions">
           <button id="downloadJson" type="button" class="action-button" disabled>Export JSON</button>
           <button id="downloadCsv" type="button" class="action-button" disabled>Trades CSV</button>

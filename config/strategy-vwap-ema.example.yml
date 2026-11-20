@@ -1,6 +1,6 @@
 # PAPER-ONLY V2 defaults imported by quant-engine-test/application.yml when run from project root.
 # Parent quant-engine does NOT import this reference. Changing YAML cannot enable broker orders.
-# Implement a validated versioned config loader before using these values in an engine.
+# V2 loads and validates this file on each backtest request.
 # Mode LIVE is NOT permission to place orders; quant-engine-test never places orders.
 # A real 15:00 square-off requires real 15:00 opening-price data, not the current CSV.
 schemaVersion: 2
@@ -19,6 +19,19 @@ trading:
     maximumQuantity: 10
     maximumConcurrentPositions: 1
 
+  fees:
+    model: ANGEL_ONE_NSE_EQUITY_INTRADAY
+    # Estimates per executed order; adjust for your brokerage plan and contract notes.
+    brokeragePercent: 0.1
+    minimumBrokerageInr: 5
+    maximumBrokerageInr: 20
+    exchangeTransactionPercent: 0.0030699
+    investorProtectionPercent: 0.0000001
+    sebiTurnoverPercent: 0.0001
+    stampDutyBuyPercent: 0.003
+    sttSellPercent: 0.025
+    gstPercent: 18
+
   session:
     zone: Asia/Kolkata
     marketOpen: "09:15"            # true exchange open; VWAP starts here
@@ -32,7 +45,7 @@ trading:
 
   signal:
     shortsEnabled: true           # research signals only, no broker short execution
-    evaluationOrder: [EMA_CROSSOVER, RSI, VWAP_BOUNCE]  # VWAP always LAST
+    evaluationOrder: [EMA_CROSSOVER, RSI, VWAP_SIDE]  # VWAP always LAST
     timeframe: FIVE_MINUTE
     requireAllFilters: true       # mandatory AND gates
     ema:
@@ -47,10 +60,7 @@ trading:
       requireLongAbove: true
       requireShortBelow: true
       recheckSideAtNextOpen: true
-      bounce:
-        enabled: true
-        requireWickTouch: true    # ONE completed bar touching VWAP and closing on correct side
-        touchToleranceBps: 0     # no requirement for earlier bounces; VWAP is LAST signal gate
+      # A touch/rebound can occur, but is not required or scored separately.
     rsi:
       enabled: true
       period: 14

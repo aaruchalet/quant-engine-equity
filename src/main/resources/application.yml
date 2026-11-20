@@ -3,7 +3,7 @@ server:
   address: ${HOST:127.0.0.1}
 spring:
   config:
-    import: optional:file:./config/strategy-vwap-ema.example.yml
+    import: optional:file:${V2_STRATEGY_CONFIG_PATH:./config/strategy-vwap-ema.example.yml}
   application:
     name: quant-engine-test
 management:
@@ -19,6 +19,8 @@ trading:
     cache-max-age-hours: ${HISTORY_CACHE_MAX_AGE_HOURS:24}
     batch-days: ${HISTORY_BATCH_DAYS:14}
     access-key: ${BACKTEST_ACCESS_KEY:}
+  strategy:
+    v2-config-path: ${V2_STRATEGY_CONFIG_PATH:config/strategy-vwap-ema.example.yml}
   angel-one:
     api-key: ${ANGEL_ONE_API_KEY:}
     jwt: ${ANGEL_ONE_JWT_TOKEN:}
