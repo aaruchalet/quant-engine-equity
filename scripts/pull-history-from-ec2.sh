@@ -27,7 +27,7 @@ if ! EXIT_IP="$(ssh "${SSH_OPTS[@]}" "$EC2_SSH" 'curl -4 -fsS --max-time 12 http
   exit 1
 fi
 case "$EXIT_IP" in
-  92.62.121.100|92.62.121.166) echo "EC2 registered egress verified: $EXIT_IP" >&2 ;;
+  13.202.233.29) echo "EC2 registered Trading test egress verified: $EXIT_IP" >&2 ;;
   *) echo "STOP: EC2 egress is $EXIT_IP, not a registered Angel One IP." >&2
      echo 'No broker request made. Register actual STATIC egress or configure an authorized gateway first.' >&2
      exit 1;;
@@ -42,7 +42,7 @@ cleanup() {
 trap cleanup EXIT
 printf 'Starting read-only Angel One export on EC2...\n' >&2
 ssh "${SSH_OPTS[@]}" "$EC2_SSH" \
-  "python3 - --from-date '$FROM_DATE' --through-date '$THROUGH_DATE' --output '$REMOTE_DIR/history.csv'" \
+  "python3 - --from-date '$FROM_DATE' --through-date '$THROUGH_DATE' --output '$REMOTE_DIR/history.csv' --credentials-file '/home/ubuntu/.config/quant-engine-test/trading-test.env'" \
   < "$SCRIPT_DIR/ec2_export_angel_history.py"
 mkdir -p "$(dirname "$OUT")"
 umask 077
