@@ -28,6 +28,8 @@ REGISTERED_EGRESS = frozenset({'13.202.233.29'})
 MASTER_URL = 'https://margincalculator.angelone.in/OpenAPI_File/files/OpenAPIScripMaster.json'
 CANDLE_URL = 'https://apiconnect.angelone.in/rest/secure/angelbroking/historical/v1/getCandleData'
 BAR_TIMES = tuple((dt.datetime(2026, 1, 1, 9, 15) + dt.timedelta(minutes=5*i)).time() for i in range(69))
+BAR_TIMES_V2 = BAR_TIMES + (dt.time(15, 0),)
+DEFAULT_LAST_OPEN = dt.time(14, 55)
 # The strategy squares off at the 14:55 candle OPEN; Angel One may still
 # return later regular NSE session candles (15:00 through 15:25).
 EXTRA_SESSION_TIMES = tuple(
@@ -179,12 +181,12 @@ def parse_timestamp(value: str) -> dt.datetime:
     return stamp.astimezone(IST).replace(tzinfo=None) if stamp.tzinfo else stamp
 
 
-def validate_row(row: list[object]) -> tuple[dt.datetime, tuple[str, ...]]:
+def validate_row(row: list[object], last_open: dt.time = DEFAULT_LAST_OPEN) -> tuple[dt.datetime, tuple[str, ...]]:
     if not isinstance(row, list) or len(row) < 6:
         raise DownloadError('Vendor returned malformed OHLCV row')
     try:
         stamp = parse_timestamp(str(row[0]))
-        if stamp.time() not in BAR_TIMES:
+        if stamp.time() not in (BAR_TIMES_V2 if last_open == dt.time(15, 0) else BAR_TIMES):
             raise DownloadError(f'Vendor returned unexpected candle at {stamp:%H:%M:%S} IST; expected a 5-minute candle from 09:15 to 14:55')
         vals = [float(x) for x in row[1:6]]
         if any(not (float('-inf') < v < float('inf')) for v in vals):
@@ -197,9 +199,10 @@ def validate_row(row: list[object]) -> tuple[dt.datetime, tuple[str, ...]]:
     return stamp, tuple(str(x) for x in row[1:6])
 
 
-def fetch_batch(token: str, headers: dict[str, str], start: dt.date, through: dt.date) -> list[list[object]]:
+def fetch_batch(token: str, headers: dict[str, str], start: dt.date, through: dt.date,
+                last_open: dt.time = DEFAULT_LAST_OPEN) -> list[list[object]]:
     payload = json.dumps({'exchange':'NSE','symboltoken':token,'interval':'FIVE_MINUTE',
-                          'fromdate':f'{start:%Y-%m-%d} 09:15','todate':f'{through:%Y-%m-%d} 14:55'})
+                          'fromdate':f'{start:%Y-%m-%d} 09:15','todate':f'{through:%Y-%m-%d} {last_open:%H:%M}'})
     req = urllib.request.Request(CANDLE_URL, data=payload.encode('utf-8'), headers=headers, method='POST')
     try:
         with urllib.request.urlopen(req, timeout=35) as response:
@@ -236,14 +239,17 @@ def fetch_batch(token: str, headers: dict[str, str], start: dt.date, through: dt
 
 
 def checkpoint_path(cache_dir: Path, token: str,
-                    start: dt.date, through: dt.date) -> Path:
+                    start: dt.date, through: dt.date,
+                    last_open: dt.time = DEFAULT_LAST_OPEN) -> Path:
     if not re.fullmatch(r'[0-9]{1,20}', token):
         raise DownloadError('Invalid NSE instrument token for historical checkpoint')
-    return cache_dir / f'NSE-NIFTYBEES-FIVE_MINUTE-{token}-{start:%Y%m%d}-{through:%Y%m%d}.json'
+    suffix = '-1500' if last_open == dt.time(15, 0) else ''
+    return cache_dir / f'NSE-NIFTYBEES-FIVE_MINUTE-{token}-{start:%Y%m%d}-{through:%Y%m%d}{suffix}.json'
 
 
 def read_checkpoint(path: Path, token: str, start: dt.date,
-                    through: dt.date) -> dict[dt.datetime, tuple[str, ...]] | None:
+                    through: dt.date, last_open: dt.time = DEFAULT_LAST_OPEN
+                    ) -> dict[dt.datetime, tuple[str, ...]] | None:
     if not path.exists():
         return None
     if path.is_symlink() or not path.is_file():
@@ -258,7 +264,7 @@ def read_checkpoint(path: Path, token: str, start: dt.date,
             raise ValueError('checkpoint metadata mismatch')
         result: dict[dt.datetime, tuple[str, ...]] = {}
         for row in payload['rows']:
-            stamp, values = validate_row(row)
+            stamp, values = validate_row(row, last_open)
             if not (start <= stamp.date() <= through):
                 raise ValueError('checkpoint date outside window')
             if stamp in result and result[stamp] != values:
@@ -300,10 +306,13 @@ def write_checkpoint(path: Path, token: str, start: dt.date,
 
 def collect_history(start: dt.date, through: dt.date, token: str, headers: dict[str, str],
                     batch_days: int = 14, pause: float = 10.0,
-                    fetcher=fetch_batch, cache_dir: Path | None = None
+                    fetcher=fetch_batch, cache_dir: Path | None = None,
+                    last_open: dt.time = DEFAULT_LAST_OPEN
                     ) -> dict[dt.datetime, tuple[str, ...]]:
     if not 1 <= batch_days <= 30 or pause < 0:
         raise DownloadError('Invalid history batch size or request interval')
+    if last_open not in (DEFAULT_LAST_OPEN, dt.time(15, 0)):
+        raise DownloadError('Only 14:55 V1 or 15:00 V2 export cutoffs are supported')
     candles: dict[dt.datetime, tuple[str, ...]] = {}
     cursor = start - dt.timedelta(days=30)
     iteration = 0
@@ -311,8 +320,8 @@ def collect_history(start: dt.date, through: dt.date, token: str, headers: dict[
     while cursor <= through:
         end = min(through, cursor + dt.timedelta(days=batch_days - 1))
         iteration += 1
-        cache_path = checkpoint_path(cache_dir, token, cursor, end) if cache_dir else None
-        window = read_checkpoint(cache_path, token, cursor, end) if cache_path else None
+        cache_path = checkpoint_path(cache_dir, token, cursor, end, last_open) if cache_dir else None
+        window = read_checkpoint(cache_path, token, cursor, end, last_open) if cache_path else None
         if window is None:
             if last_fetch_at is not None:
                 remaining = pause - (time.monotonic() - last_fetch_at)
@@ -321,7 +330,8 @@ def collect_history(start: dt.date, through: dt.date, token: str, headers: dict[
             # One request only. A 403/429 stops this run; never bypass broker limits.
             last_fetch_at = time.monotonic()
             try:
-                vendor_rows = fetcher(token, headers, cursor, end)
+                vendor_rows = (fetcher(token, headers, cursor, end, last_open)
+                               if fetcher is fetch_batch else fetcher(token, headers, cursor, end))
             except DownloadError as exc:
                 raise DownloadError(f'Window {cursor} to {end}: {exc}. '
                                     'Previously completed windows are cached when enabled') from exc
@@ -335,10 +345,11 @@ def collect_history(start: dt.date, through: dt.date, token: str, headers: dict[
                     row_timestamp = parse_timestamp(str(row[0]))
                 except (ValueError, TypeError, OverflowError) as exc:
                     raise DownloadError('Vendor returned invalid candle timestamp') from exc
-                if row_timestamp.time() in EXTRA_SESSION_TIMES:
+                if (row_timestamp.time() in EXTRA_SESSION_TIMES
+                        and row_timestamp.time() > last_open):
                     ignored_late += 1
                     continue
-                stamp, values = validate_row(row)
+                stamp, values = validate_row(row, last_open)
                 if cursor <= stamp.date() <= end:
                     if stamp in window and window[stamp] != values:
                         raise DownloadError('Conflicting duplicate historical candle')
@@ -346,7 +357,7 @@ def collect_history(start: dt.date, through: dt.date, token: str, headers: dict[
             if cache_path:
                 write_checkpoint(cache_path, token, cursor, end, window)
             print(f'Fetched window {iteration}: {cursor} to {end}' +
-                  (f' (ignored {ignored_late} post-14:55 NSE candles)' if ignored_late else '') +
+                  (f' (ignored {ignored_late} after {last_open:%H:%M} NSE candles)' if ignored_late else '') +
                   (' [checkpoint saved]' if cache_path else ''), file=sys.stderr)
         else:
             print(f'Cached window {iteration}: {cursor} to {end} '
@@ -360,17 +371,20 @@ def collect_history(start: dt.date, through: dt.date, token: str, headers: dict[
 
 
 def summarize_complete(candles: dict[dt.datetime, tuple[str, ...]],
-                       start: dt.date, through: dt.date) -> tuple[list[tuple[dt.datetime, tuple[str, ...]]], list[str], int]:
+                       start: dt.date, through: dt.date,
+                       last_open: dt.time = DEFAULT_LAST_OPEN
+                       ) -> tuple[list[tuple[dt.datetime, tuple[str, ...]]], list[str], int]:
     by_day: dict[dt.date, dict[dt.time, tuple[str, ...]]] = {}
     for stamp, vals in candles.items():
         by_day.setdefault(stamp.date(), {})[stamp.time()] = vals
     valid_dates: set[dt.date] = set()
     skipped: list[str] = []
+    required_times = BAR_TIMES_V2 if last_open == dt.time(15, 0) else BAR_TIMES
     for date, bars in sorted(by_day.items()):
-        if any(t not in bars for t in BAR_TIMES):
+        if any(t not in bars for t in required_times):
             skipped.append(f'{date}: missing 5-minute bars')
             continue
-        if sum(float(bars[t][4]) for t in BAR_TIMES) <= 0:
+        if sum(float(bars[t][4]) for t in required_times) <= 0:
             skipped.append(f'{date}: no real trading volume')
             continue
         valid_dates.add(date)
@@ -415,6 +429,8 @@ def main() -> int:
     p.add_argument('--cache-dir', type=Path,
                    default=Path.home() / '.cache' / 'quant-engine-test' / 'angel-one-history',
                    help='Private persistent, resumable market-data checkpoints on EC2')
+    p.add_argument('--v2-1500', action='store_true',
+                   help='Export genuine 15:00 opening candles for V2; use separate checkpoints')
     p.add_argument('--request-interval', type=float, default=10.0,
                    help='Minimum seconds between new historical API requests; default 10')
     args = p.parse_args()
@@ -429,9 +445,11 @@ def main() -> int:
         headers, preset = load_credentials(container, actual, args.runtime_env,
                                            credentials_file=args.credentials_file)
         token = resolve_token(preset)
+        cutoff = dt.time(15, 0) if args.v2_1500 else DEFAULT_LAST_OPEN
         candles = collect_history(start, through, token, headers,
-                                  pause=args.request_interval, cache_dir=args.cache_dir)
-        usable, skipped, sessions = summarize_complete(candles, start, through)
+                                  pause=args.request_interval, cache_dir=args.cache_dir,
+                                  last_open=cutoff)
+        usable, skipped, sessions = summarize_complete(candles, start, through, cutoff)
         write_csv(args.output, usable)
         print(f'Exported {len(usable)} validated candles across {sessions} requested-range sessions; '
               f'{len(skipped)} partial/zero-volume sessions excluded', file=sys.stderr)
