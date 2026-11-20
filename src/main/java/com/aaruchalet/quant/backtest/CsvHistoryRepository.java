@@ -19,9 +19,17 @@ public final class CsvHistoryRepository {
 
     /** V2 must have genuine 15:00 opening-price bars; V1 remains at 14:55. */
     public History load(Path file, LocalDate through, LocalTime requiredLastBar) throws IOException {
-        if (requiredLastBar.isBefore(LocalTime.of(9, 15))
+        return load(file, through, LocalTime.of(9, 15), requiredLastBar);
+    }
+
+    /** Use the configured market open for V2's session VWAP and session validation. */
+    public History load(Path file, LocalDate through, LocalTime marketOpen, LocalTime requiredLastBar) throws IOException {
+        if (marketOpen.isBefore(LocalTime.of(9, 15)) || marketOpen.isAfter(LocalTime.of(15, 25))
+                || marketOpen.getMinute() % 5 != 0 || marketOpen.getSecond() != 0 || marketOpen.getNano() != 0
+                || requiredLastBar.isBefore(marketOpen)
                 || requiredLastBar.isAfter(LocalTime.of(15, 25))
-                || requiredLastBar.getMinute() % 5 != 0 || requiredLastBar.getSecond() != 0)
+                || requiredLastBar.getMinute() % 5 != 0 || requiredLastBar.getSecond() != 0
+                || requiredLastBar.getNano() != 0)
             throw new IllegalArgumentException("History cutoff must be a valid NSE 5-minute bar open");
         if (!Files.isRegularFile(file)) throw new IllegalArgumentException(
                 "No history CSV at " + file + ". Supply real licensed OHLCV candles via HISTORY_CSV_PATH");
@@ -55,7 +63,7 @@ public final class CsvHistoryRepository {
         for (var day : days.entrySet()) {
             TreeMap<LocalTime, Candle> bars = day.getValue();
             boolean allPresent = true;
-            for (LocalTime t = LocalTime.of(9, 15); !t.isAfter(requiredLastBar); t = t.plusMinutes(5)) {
+            for (LocalTime t = marketOpen; !t.isAfter(requiredLastBar); t = t.plusMinutes(5)) {
                 if (!bars.containsKey(t)) { allPresent = false; break; }
             }
             if (!allPresent) {
@@ -63,14 +71,16 @@ public final class CsvHistoryRepository {
                 continue;
             }
             // An index dataset with 0 volume cannot support valid session VWAP.
-            if (bars.values().stream().filter(b -> !b.openTime().toLocalTime().isAfter(requiredLastBar))
+            if (bars.values().stream().filter(b -> !b.openTime().toLocalTime().isBefore(marketOpen)
+                            && !b.openTime().toLocalTime().isAfter(requiredLastBar))
                     .mapToDouble(Candle::volume).sum() <= 0) {
                 skipped.add(day.getKey() + ": zero traded volume; VWAP not valid");
                 continue;
             }
             validDays++;
             // Do not consume candles after square-off. They cannot affect a closed intraday strategy.
-            bars.values().stream().filter(b -> !b.openTime().toLocalTime().isAfter(requiredLastBar))
+            bars.values().stream().filter(b -> !b.openTime().toLocalTime().isBefore(marketOpen)
+                            && !b.openTime().toLocalTime().isAfter(requiredLastBar))
                     .forEach(complete::add);
         }
         if (complete.isEmpty()) throw new IllegalArgumentException(

@@ -53,7 +53,7 @@ The UI displays:
 
 The status endpoint `GET /api/backtests/history-status` returns only a file-presence flag, file basename and size; the dashboard does not accept arbitrary server file paths. If the CSV is missing, configure `HISTORY_CSV_PATH` and restart Spring Boot. The UI does not save reports after page reload; use **Export JSON** to retain them.
 
-**Important:** Brokerage/taxes default to zero and slippage defaults to 2 bps. Enter representative costs before treating results as net after-cost estimates. This remains a research-only, locally bound application, not a live-trading interface. The current form runs **V1**; the requested V2 YAML contract below is not yet bound to the Java engine.
+**Important:** V1 brokerage/taxes default to zero. V2 uses the configurable Angel One NSE equity intraday estimate described below. Slippage defaults to 2 bps per fill. Both remain research-only estimates, not a live-trading interface.
 
 ## Run a real six-month backtest
 
@@ -97,16 +97,16 @@ NIFTY 50 **spot index is not a tradable instrument**, and index bar volume is no
 
 All parameter overrides can be sent in the JSON `POST` body. See `BacktestRequest` for names and `StrategyConfig` for validations/defaults. The engine uses local configured CSV paths only; callers cannot read arbitrary server files.
 
-### Implemented separate V2 — EMA crossover, RSI, then VWAP final bounce
+### Implemented separate V2 — EMA crossover, RSI, then VWAP side
 
-The **new isolated research-only V2** uses `POST /api/backtests/vwap-ema-v2` and is selectable in the local browser dashboard. It does **not** replace the original `/api/backtests/ema-vwap-rsi` V1 simulation or connect to order placement. In the project-root working directory, `src/main/resources/application.yml` imports and validates `config/strategy-vwap-ema.example.yml` for V2; the parent repository does not auto-load this file.
+The **new isolated research-only V2** uses `POST /api/backtests/vwap-ema-v2` and is selectable in the local browser dashboard. It does **not** replace the original `/api/backtests/ema-vwap-rsi` V1 simulation or connect to order placement. V2 reads and validates `config/strategy-vwap-ema.example.yml` for every run. Set `V2_STRATEGY_CONFIG_PATH` before startup to use a different YAML file. Missing, unknown, or unsupported settings are rejected; there are no silent Java fallback values for V2 strategy settings. The parent repository does not auto-load this file. Logging is initialized by Spring at application startup.
 
 | Entry gate (strict order) | V2 behavior |
 | --- | --- |
 | EMA first | Confirmed same-session EMA9 crosses above EMA20 for LONG or below for SHORT; maintain side until opposite crossing |
 | RSI second | RSI(14) strictly **>50** for LONG or **<50** for SHORT; RSI exit **disabled** |
 | Time, capital, daily limits | Before VWAP: valid entry hours, 1–10 quantity, at most five trades/day, ₹5,000 realized loss and ₹10,000 profit caps |
-| **VWAP FINAL** | A **single** completed-bar LOW touching VWAP and CLOSE > VWAP confirms LONG; a **single** HIGH touching VWAP and CLOSE < VWAP confirms SHORT; NO bounce counts; recheck the price side at next-bar OPEN |
+| **VWAP FINAL** | Completed candle CLOSE > VWAP for LONG or CLOSE < VWAP for SHORT; a touch or rebound is optional and is not separately scored; recheck the price side at next-bar OPEN |
 | Exit | 1% entry-price stop loss; 2% entry-price profit target; forced square-off at configured **15:00 OPEN** |
 | Trading safety | PAPER-only in `quant-engine-test`; MARKET / INTRADAY / DAY; carry-over false; no live broker order capability |
 
@@ -139,7 +139,7 @@ export HISTORY_CSV_PATH="$PWD/data/niftybees-5min-2026-05-20-to-2026-11-19-v2-15
 ./gradlew bootRun
 ```
 
-Open **http://127.0.0.1:8081/**, choose **V2 · EMA → RSI → VWAP bounce**, and run. Alternatively POST the original JSON body to `/api/backtests/vwap-ema-v2`. V2 strategy rules and session times are controlled by the external YAML; V1-only form inputs are disabled when V2 is selected.
+Open **http://127.0.0.1:8081/**, choose **V2 · EMA → RSI → VWAP side**, and run. Alternatively POST the original JSON body to `/api/backtests/vwap-ema-v2`. V2 strategy rules and session times are controlled by the external YAML; V1-only form inputs are disabled when V2 is selected.
 
 **Important:** The new exporter still performs authorized, read-only Angel One requests from the registered EC2 egress and can encounter HTTP 403/AB1021 broker rate limits. It will stop without aggressive retries and preserve V2 checkpoints. Credentials are never copied into Git. No six-month V2 performance figure has yet been measured/verified. Exchanging the old CSV for the new one is required for the actual V2 historical run.
 
@@ -258,6 +258,20 @@ cannot bypass broker permissions or guarantee six months of vendor retention.
 This remains **read-only and research-only**: no live trading or broker order calls.
 
 
-### VWAP bounce clarification (20 Nov 2026)
+### VWAP side clarification (20 Nov 2026)
 
-There is **no first/second/third bounce counter**. Evaluate a confirmed EMA9/20 crossover, RSI(14) >50/<50, time and risk gates **before** the final VWAP price-action check. Long bounce: current completed candle LOW touches VWAP and CLOSE > VWAP; short rejection: HIGH touches VWAP and CLOSE < VWAP. Confirm correct-side price again at next bar OPEN. A single valid bounce suffices. See `doc/instructions-algo-trading.md` and `config/strategy-vwap-ema.example.yml`.
+After the configured EMA crossover, RSI and risk checks pass, a completed candle must close strictly above session VWAP for LONG or strictly below for SHORT. No touch or bounce is required. A touch may occur but is not scored separately. The next bar OPEN must also be on the correct side of the last confirmed VWAP. The historical `VWAP_BOUNCE_EMA_V2` strategy ID remains for compatibility; its name does not imply a required bounce.
+
+EMA periods, RSI thresholds, order quantity, risk limits, times and fee rates are read from the YAML. The supported contract is validated: PAPER mode, five-minute bars, current-session crossover, HLC3 VWAP and the listed mandatory filters. Unsupported options are rejected instead of silently ignored. Capital and slippage remain per-run dashboard/API inputs; V2 rejects the V1 `feeBps`/`feePerOrder` inputs so they cannot silently override the YAML. The configured market open determines which CSV bars feed the indicators; only complete sessions within the requested date range may be simulated. Strategy settings reload on each V2 request; Spring logging changes take effect after restart. The example/default settings above are not fixed values.
+
+### V2 Angel One fee estimate
+
+The default YAML uses Angel One's published **NSE equity intraday** rates: brokerage is 0.1% of order value, with ₹5 minimum and ₹20 maximum per executed order; NSE transaction charges are 0.0030699% and IPFT 0.0000001% on each side; SEBI turnover fee is 0.0001% on each side; stamp duty is 0.003% on the buy side; STT is 0.025% on the sell side; GST is 18% on brokerage, exchange charges, IPFT and SEBI fees. For shorts the entry is the sell and the exit is the buy. All rates are editable and validated in `trading.fees`.
+
+Sources: [Angel One brokerage and regulatory schedule](https://www.angelone.in/exchange-transaction-charges), [Angel One brokerage support](https://www.angelone.in/support/charges-and-cashbacks/brokerage-charges), and [NSE transaction-charge circular effective March 2026](https://nsearchives.nseindia.com/content/circulars/FA73061.pdf).
+
+This is an estimate per simulated order. It does not apply historical rate changes, client-specific brokerage plans, promotional discounts, broker/exchange caps for tiny orders, contract-note rounding, auto-square-off charges or income tax. Check your actual Angel One contract note. A single current rate configuration is applied across the whole backtest, so historical results may differ from actual costs. V1 retains its separate manual fee inputs.
+
+### Exit reason labels
+
+Legacy V1 labels the loss of any part of its combined entry condition `TREND_REVERSAL`, even without an EMA reversal. V2 optional VWAP and EMA exits are disabled by default. If enabled, they are reported as `VWAP_INVALIDATION` and `EMA_REVERSAL`; when both trigger on the same close, VWAP invalidation takes precedence. Stop, target and square-off retain their own labels.

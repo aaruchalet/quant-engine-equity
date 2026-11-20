@@ -9,8 +9,8 @@ import java.util.*;
 /**
  * Independent read-only V2 backtester.
  *
- * Decision order: EMA crossover -> RSI -> time/risk/position -> VWAP FINAL candle
- * touch-and-rebound. A single qualifying candle suffices; NO bounce counters.
+ * Decision order: EMA crossover -> RSI -> time/risk/position -> VWAP side.
+ * A touch or rebound is not required.
  * All signals use completed candles; fills happen at the next bar OPEN.
  */
 public final class BacktestEngineV2 {
@@ -29,7 +29,8 @@ public final class BacktestEngineV2 {
         curve.add(new EquityPoint(request.from().atStartOfDay(), equity));
         Position position = null;
         PendingSignal pending = null;
-        boolean pendingExit = false, bullishCrossActive = false, bearishCrossActive = false;
+        ExitReason pendingExit = null;
+        boolean bullishCrossActive = false, bearishCrossActive = false;
         Double lastFast = null, lastSlow = null;
         LocalDate priorDate = null;
         double dailyPnl = 0;
@@ -44,7 +45,7 @@ public final class BacktestEngineV2 {
                 if (position != null) throw new IllegalStateException("V2 position carried overnight; check square-off data");
                 priorDate = date;
                 pending = null;
-                pendingExit = false;
+                pendingExit = null;
                 bullishCrossActive = false;
                 bearishCrossActive = false;
                 lastFast = null;
@@ -56,9 +57,9 @@ public final class BacktestEngineV2 {
             if (inRange) { tested.add(date); processed++; }
 
             // Exits at a known bar OPEN execute before reading this candle's future high/low/close.
-            if (position != null && (time.equals(cfg.squareOff()) || pendingExit)) {
-                ExitReason reason = time.equals(cfg.squareOff()) ? ExitReason.SQUARE_OFF : ExitReason.TREND_REVERSAL;
-                Trade t = close(position, bar.openTime(), bar.open(), reason, request);
+            if (position != null && (time.equals(cfg.squareOff()) || pendingExit != null)) {
+                ExitReason reason = time.equals(cfg.squareOff()) ? ExitReason.SQUARE_OFF : pendingExit;
+                Trade t = close(position, bar.openTime(), bar.open(), reason, request, cfg);
                 trades.add(t);
                 dailyPnl += t.netProfit();
                 equity += t.netProfit();
@@ -66,7 +67,7 @@ public final class BacktestEngineV2 {
                 peak = Math.max(peak, equity);
                 maxDrawdown = Math.max(maxDrawdown, 100*(peak-equity)/peak);
                 position = null;
-                pendingExit = false;
+                pendingExit = null;
             }
             if (pending != null && inRange && position == null
                     && !time.isBefore(cfg.entryStart()) && !time.isAfter(cfg.lastEntry())
@@ -107,7 +108,7 @@ public final class BacktestEngineV2 {
                     }
                 }
                 if (reason!=null) {
-                    Trade t=close(position, atOpen?bar.openTime():bar.closeTime(),rawExit,reason,request);
+                    Trade t=close(position, atOpen?bar.openTime():bar.closeTime(),rawExit,reason,request,cfg);
                     trades.add(t);
                     dailyPnl += t.netProfit();
                     equity += t.netProfit();
@@ -115,7 +116,7 @@ public final class BacktestEngineV2 {
                     peak=Math.max(peak,equity);
                     maxDrawdown=Math.max(maxDrawdown,100*(peak-equity)/peak);
                     position=null;
-                    pendingExit=false;
+                    pendingExit=null;
                 }
             }
 
@@ -146,14 +147,14 @@ public final class BacktestEngineV2 {
                 if (decisionAt.isBefore(cfg.squareOff())) {
                     if (cfg.exitOnVwapInvalidation() &&
                             ((position.side()==Side.LONG && bar.close()<s.vwap()) ||
-                             (position.side()==Side.SHORT && bar.close()>s.vwap()))) pendingExit=true;
-                    if (cfg.exitOnEmaReversal() &&
+                             (position.side()==Side.SHORT && bar.close()>s.vwap()))) pendingExit=ExitReason.VWAP_INVALIDATION;
+                    if (pendingExit==null && cfg.exitOnEmaReversal() &&
                             ((position.side()==Side.LONG && bearishCrossActive) ||
-                             (position.side()==Side.SHORT && bullishCrossActive))) pendingExit=true;
+                             (position.side()==Side.SHORT && bullishCrossActive))) pendingExit=ExitReason.EMA_REVERSAL;
                 }
                 continue;
             }
-            if (!eligible || pendingExit) continue;
+            if (!eligible || pendingExit!=null) continue;
             // FIRST: confirmed current-session EMA crossover and continued alignment.
             boolean longEma=bullishCrossActive && s.emaFast()>s.emaSlow();
             boolean shortEma=cfg.shortsEnabled() && bearishCrossActive && s.emaFast()<s.emaSlow();
@@ -161,12 +162,10 @@ public final class BacktestEngineV2 {
             boolean longRsi=cfg.rsiEnabled() && s.rsi()>cfg.longRsiAbove();
             boolean shortRsi=cfg.rsiEnabled() && s.rsi()<cfg.shortRsiBelow();
             if (!((longEma && longRsi)||(shortEma && shortRsi))) continue;
-            // LAST: VWAP touch/rebound or rejection on THIS completed candle; count NOTHING.
-            if (longEma && longRsi &&
-                    confirmsFinalVwapBounce(bar, s.vwap(), Side.LONG, cfg.touchToleranceBps())) {
+            // LAST: the completed candle must close on the correct side of VWAP.
+            if (longEma && longRsi && confirmsVwapSide(bar, s.vwap(), Side.LONG)) {
                 pending=new PendingSignal(Side.LONG,s.vwap());
-            } else if (shortEma && shortRsi &&
-                    confirmsFinalVwapBounce(bar, s.vwap(), Side.SHORT, cfg.touchToleranceBps())) {
+            } else if (shortEma && shortRsi && confirmsVwapSide(bar, s.vwap(), Side.SHORT)) {
                 pending=new PendingSignal(Side.SHORT,s.vwap());
             }
         }
@@ -187,39 +186,27 @@ public final class BacktestEngineV2 {
                 List.copyOf(trades),List.copyOf(curve));
     }
 
-    /**
-     * ONE confirmed VWAP touch-and-close is the final signal gate. This function
-     * intentionally has no counter, history or dependency on prior VWAP bounces.
-     */
-    static boolean confirmsFinalVwapBounce(Candle bar, double vwap, Side side,
-                                            double toleranceBps) {
-        if (!Double.isFinite(vwap) || vwap <= 0 || !Double.isFinite(toleranceBps)
-                || toleranceBps < 0) return false;
-        double tolerance = vwap * toleranceBps / 10000.0;
-        return side == Side.LONG
-                ? bar.low() <= vwap + tolerance && bar.close() > vwap
-                : bar.high() >= vwap - tolerance && bar.close() < vwap;
+    static boolean confirmsVwapSide(Candle bar, double vwap, Side side) {
+        if (!Double.isFinite(vwap) || vwap <= 0) return false;
+        return side == Side.LONG ? bar.close() > vwap : bar.close() < vwap;
     }
 
     private Position enter(Side side,Candle bar,double equity,StrategyConfig request,VwapEmaV2Config c) {
         double entry=bar.open()*(side==Side.LONG?1+request.slippageBps()/10000.0:
                                               1-request.slippageBps()/10000.0);
         long qty=Math.min(c.quantity(),c.maximumQuantity());
-        double entryFee=fee(entry*qty,request);
+        double entryFee=AngelOneIntradayFees.orderFee(entry*qty,side==Side.LONG,c.fees());
         if (entry*qty+entryFee>equity) return null;
         double stop=side==Side.LONG?entry*(1-c.stopPercent()/100):entry*(1+c.stopPercent()/100);
         double target=side==Side.LONG?entry*(1+c.targetPercent()/100):entry*(1-c.targetPercent()/100);
         return new Position(side,bar.openTime(),entry,stop,target,entryFee,qty);
     }
-    private Trade close(Position p,LocalDateTime at,double raw,ExitReason reason,StrategyConfig c) {
+    private Trade close(Position p,LocalDateTime at,double raw,ExitReason reason,StrategyConfig c,VwapEmaV2Config config) {
         double price=raw*(p.side()==Side.LONG?1-c.slippageBps()/10000.0:1+c.slippageBps()/10000.0);
         double gross=p.qty()*(p.side()==Side.LONG?price-p.entryPrice():p.entryPrice()-price);
-        double fees=p.entryFee()+fee(price*p.qty(),c);
+        double fees=p.entryFee()+AngelOneIntradayFees.orderFee(price*p.qty(),p.side()==Side.SHORT,config.fees());
         return new Trade(p.side(),p.entryAt(),at,round(p.entryPrice()),round(price),
                 p.qty(),round(p.stop()),round(p.target()),reason,round(gross),round(fees),round(gross-fees));
-    }
-    private double fee(double notional,StrategyConfig c) {
-        return notional*c.feeBps()/10000.0+c.feePerOrder();
     }
     private static double round(double n) {return Math.round(n*100.0)/100.0;}
 }

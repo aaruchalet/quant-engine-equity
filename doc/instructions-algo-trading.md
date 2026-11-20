@@ -49,7 +49,7 @@ Implement validated, immutable, versioned strategy configurations and the same d
 
 Required presets:
 
-1. **EMA Crossover + RSI + VWAP Final Bounce V2**: require confirmed EMA9/20 crossover and RSI first, then ONE confirmed VWAP touch/rebound above for LONG or touch/rejection below for SHORT as the final entry gate; NO bounce counting. Preserve V1; see §3A.
+1. **EMA Crossover + RSI + VWAP Side V2**: require confirmed EMA crossover and RSI first, then close above VWAP for LONG or below VWAP for SHORT. Touching VWAP is optional. Preserve V1; see §3A.
 2. **Fibonacci Pivot Breakout**: confirmed R1 (or chosen resistance) breakout / S1 support breakdown, optional retest, candle-close buffer, volume, EMA, VWAP and RSI filters.
 3. **EMA Pullback + VWAP Reclaim**: prevailing EMA trend, pullback toward configurable EMA/VWAP line, confirmed reclaim/rejection and RSI.
 4. **High-Volume Momentum Scalping**: 5m momentum/continuation breakout with volume confirmation and optional 15m trend alignment.
@@ -60,17 +60,13 @@ Never repeat a signal on every bar just because a condition stays true: use fals
 Optional rule-based **confluence score** (not a calibrated probability): EMA **25**, VWAP **20**, RSI **15**, Volume **20**, Pivot **20** = 100 total. Suggested candidate threshold 65, strong candidate threshold 80; configurable. Display satisfied and failed conditions, entry reference, stop, target, R:R, signal timestamp and WAIT/NO TRADE when blocked. A score never overrides mandatory risk gates.
 
 
-## 3A. V2: EMA/RSI first, VWAP bounce as final entry gate (clarified 2026-11-20)
+## 3A. V2: EMA/RSI first, VWAP side as final entry gate (clarified 2026-11-20)
 
 **Implementation status:** The isolated `quant-engine-test` research engine now has a dedicated V2 implementation and `POST /api/backtests/vwap-ema-v2`, separate from V1. The V2 UI option imports `config/strategy-vwap-ema.example.yml` in the test repository. Valid V2 15:00 bar-open history must still be exported separately; do not report a real six-month V2 result until run against the actual upgraded dataset. The parent `quant-engine` must not start live orders from configuration alone. Preserve the legacy `/api/backtests/ema-vwap-rsi` route and historical results as V1.
 
-**NO bounce counts:** **Do not count first/second/third rebounds, prior touches, or require multiple bounces.** A single qualifying confirmed VWAP rebound or rejection is sufficient **after all preceding filters pass**. In code, evaluate trading permissions, clock, EMA9/20 crossover and current EMA alignment, RSI14 and risk limits *first*. Only after these pass evaluate the VWAP bounce/rejection as the **last entry-signal filter**.
+**Final VWAP side:** After the configured current-session EMA crossover, RSI, clock and risk checks, a completed candle must CLOSE strictly above session VWAP for LONG, or strictly below it for SHORT. Touching or bouncing from VWAP is optional and is not separately scored. At the next candle OPEN, recheck against the last confirmed VWAP and cancel if it is on the wrong side or equal. Never use a future close. Shorts are research-only and require instrument/product validation before any future live use.
 
-**LONG entry:** (1) Confirm that EMA9 crossed above EMA20 on completed bars within the current session and remains above it; (2) RSI(14) enabled with RSI **strictly above 50**; (3) time, position, quantity, cash and daily risk gates pass; (4) **LAST:** on a completed 5-minute bar, price tests session VWAP from above (bar LOW <= VWAP plus optional tolerance), then CLOSE is **strictly above VWAP**. A valid single bounce may trigger; no previous bounces required. (5) At the NEXT bar opening, recheck entry OPEN is strictly above the last confirmed VWAP, or cancel.
-
-**SHORT entry:** Same in reverse: EMA9 crossed below EMA20 in the current session and remains below; RSI(14) **strictly below 50**; all prechecks pass; **LAST:** bar HIGH >= VWAP minus tolerance and CLOSE strictly below VWAP (a single resistance rejection); next entry OPEN strictly below the last confirmed VWAP or cancel. Shorts are paper/backtest signals only unless instrument and product permit real intraday shorting.
-
-**OHLC note:** A bar's low/high and close prove touch-and-close, not the intrabar sequence. This is a confirmed-bar bounce/rejection proxy. Do not claim a high-frequency chronological rebound from OHLC or look ahead to the next bar close. Signal uses the completed candle; entry uses next bar OPEN. VWAP is session HLC3/volume from market open 09:15; reset daily.
+**OHLC note:** Candle OHLC cannot establish the chronological order of intrabar touches. The entry rule uses the completed close and next open; VWAP uses HLC3 and traded volume from the configured market open.
 
 **EMA:** Fast 9/slow 20, confirmed crossover uses *previous versus current* completed EMA samples, held active on that session's side until an opposite crossover; its crossover must occur no later than the VWAP confirming bar. The crossover check precedes the VWAP check. Prevent duplicate entries on the same qualifying signal.
 
@@ -82,9 +78,9 @@ Optional rule-based **confluence score** (not a calibrated probability): EMA **2
 
 **Data coverage constraint:** The old NIFTYBEES CSV ends at 14:55 OPEN and V1 exits at 14:55. To backtest V2 square-off **15:00 OPEN**, obtain genuine 15:00 opening candle data and require that timestamp for every V2-traded session. Do not infer 15:00 OPEN from 14:55 CLOSE or make up prices. Keep V1 results reproducible.
 
-**Config contract:** `config/strategy-vwap-ema.example.yml` contains these rules and NO bounce counters. In `quant-engine-test`, `application.yml` imports the local YAML and `VwapEmaV2Config` validates its values whenever the V2 endpoint runs; the legacy V1 endpoint remains independent. In parent `quant-engine`, the example is reference-only and is NOT activated. Keep immutable/versioned per-run config snapshots, validate all safety boundaries, and do not treat a file setting as authorization for actual orders.
+**Config contract:** V2 reads `config/strategy-vwap-ema.example.yml` directly on each request; `V2_STRATEGY_CONFIG_PATH` can choose another file at startup. Missing, unknown and unsupported settings are rejected. The example values are configurable; unsupported timeframe, scope, mode and filter combinations are rejected. Logging is initialized by Spring at startup. The legacy V1 endpoint remains independent. In parent `quant-engine`, the example is reference-only and is NOT activated. Keep immutable per-run config snapshots and do not treat a file setting as authorization for actual orders.
 
-**Acceptance tests:** One valid bounce can enter after EMA crossover and RSI; no entry before crossover or with failed RSI; strict VWAP side, touch/rejection and fill-open check; no first/second/third counter; real 15:00 candle mandatory; stop1% target2%; 1..10 quantity, session and daily caps; no signal from future prices; V1 behavior unchanged.
+**Acceptance tests:** Above/below VWAP entries work without touches after EMA crossover and RSI; touch remains allowed; equality and wrong-side prices are rejected; the next-open check, YAML values and validation, real square-off candle, risk caps and no-lookahead behavior remain covered.
 
 ## 4. Mandatory configurable intraday schedule (Asia/Kolkata)
 
@@ -149,7 +145,7 @@ Chart/API design in parent (when requested): instrument/candles/indicators/strat
 1. Existing repo still builds; no unrelated regressions or destroyed configurations.
 2. Standalone test service runs immediately after clone with Java 21 and its Gradle wrapper; synthetic demo needs no broker credentials or database.
 3. Five indicator formulas and warmup behavior are documented, configurable and tested before enabling their respective strategy.
-4. Existing V1 backtest stays labeled and reproducible (09:35–14:45 entries, 14:55 open square-off). V2 requires passing §3A acceptance tests: 09:20 strategy start, 09:30 first fill, 15:00 square-off using real 15:00 candle-open data, **one** qualifying VWAP touch-and-close with **no bounce counts**, EMA crossover before RSI before final VWAP confirmation, daily INR caps and config validation.
+4. Existing V1 backtest stays labeled and reproducible (09:35–14:45 entries, 14:55 open square-off). V2 requires passing §3A acceptance tests: 09:20 strategy start, 09:30 first fill, 15:00 square-off using real 15:00 candle-open data, a correct-side VWAP close without a required touch, EMA crossover before RSI before final VWAP confirmation, daily INR caps and config validation.
 5. Six-month broker download uses real instrument metadata, token, valid auth, bounded requests, error handling, cache and complete-session validation.
 6. CSV export and fetch-and-backtest endpoints work as documented; failed/partial downloads are visible and never silently treated as success.
 7. Outputs are reproducible and include costs, fill model, trade reasons and skipped sessions.
@@ -167,4 +163,4 @@ Chart/API design in parent (when requested): instrument/candles/indicators/strat
 6. Provide branch, commit SHA, changed-file summary, test outcomes, run commands, example `curl`, and explicit external prerequisites.
 7. Never activate real money trading, alter production execution rules, or claim verified six-month historical results without valid source data and a completed backtest.
 
-**Primary priority:** preserve V1 evidence and implement the configurable VWAP-single-bounce + EMA-crossover **V2** from §3A with risk controls, validated market data and no live-order activation.
+**Primary priority:** preserve V1 evidence and implement the configurable VWAP-side + EMA-crossover **V2** from §3A with risk controls, validated market data and no live-order activation.

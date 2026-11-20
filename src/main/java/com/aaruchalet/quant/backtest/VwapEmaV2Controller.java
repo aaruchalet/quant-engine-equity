@@ -1,7 +1,6 @@
 package com.aaruchalet.quant.backtest;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -16,25 +15,29 @@ import java.util.Map;
 public class VwapEmaV2Controller {
     private final Path csv;
     private final String symbol;
-    private final Environment environment;
+    private final Path strategyConfig;
 
     public VwapEmaV2Controller(
             @Value("${trading.history.csv-path}") String csvPath,
             @Value("${trading.history.symbol}") String historySymbol,
-            Environment environment) {
+            @Value("${trading.strategy.v2-config-path}") String strategyConfigPath) {
         this.csv = Path.of(csvPath);
         this.symbol = historySymbol;
-        this.environment = environment;
+        this.strategyConfig = Path.of(strategyConfigPath);
     }
 
     @PostMapping("/vwap-ema-v2")
     public BacktestReport run(@RequestBody BacktestRequest request) throws IOException {
-        VwapEmaV2Config config = VwapEmaV2Config.from(environment);
+        VwapEmaV2Config config = VwapEmaV2Config.fromYaml(strategyConfig);
+        if (request != null && (request.feeBps()!=null || request.feePerOrder()!=null))
+            throw new IllegalArgumentException("V2 fees come from the strategy YAML; omit feeBps and feePerOrder");
         StrategyConfig settings = StrategyConfig.from(request);
         if (!settings.symbol().equalsIgnoreCase(symbol))
             throw new IllegalArgumentException("Requested V2 symbol must match configured historical CSV instrument");
         CsvHistoryRepository.History history =
-                new CsvHistoryRepository().load(csv, settings.through(), config.squareOff());
+                new CsvHistoryRepository().load(csv, settings.through(), config.marketOpen(), config.squareOff());
+        if (history.candles().stream().noneMatch(c -> !c.openTime().toLocalDate().isBefore(settings.from())))
+            throw new IllegalArgumentException("No complete historical session in the requested date range");
         return new BacktestEngineV2().run(history, settings, config);
     }
 

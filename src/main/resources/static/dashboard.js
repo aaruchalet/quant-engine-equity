@@ -67,8 +67,8 @@
     };
     const isV2 = $("strategyVersion").value === "v2";
     // V2 EMA, RSI, VWAP, stop/target, times and daily limits are external YAML config,
-    // not stale/disabled V1 form fields. Only capital and execution costs vary per run.
-    const fields = isV2 ? ["initialCapital", "slippageBps", "feeBps", "feePerOrder"] : numericFields;
+    // not stale/disabled V1 form fields. Capital and slippage vary per run; V2 fees come from YAML.
+    const fields = isV2 ? ["initialCapital", "slippageBps"] : numericFields;
     for (const field of fields) request[field] = Number($(field).value);
     if (request.from > request.through) throw new Error("The start date must not be later than the end date.");
     if (!isV2 && request.fastEma >= request.slowEma) throw new Error("Slow EMA must be greater than fast EMA.");
@@ -138,7 +138,7 @@
 
   function renderReport(report) {
     setText("resultTitle", report.symbol + " · " + (state.activeVersion === "v2" ?
-      "EMA → RSI → VWAP-bounce V2" : "Legacy EMA/VWAP/RSI V1") + " simulation");
+      "EMA → RSI → VWAP-side V2" : "Legacy EMA/VWAP/RSI V1") + " simulation");
     setText("resultPeriod", formatDate(report.from) + " – " + formatDate(report.through) + " · " + report.timezone);
     setText("metricProfit", money(report.netProfit));
     setText("metricReturn", (Number(report.returnPercent) > 0 ? "+" : "") + percent(report.returnPercent) + " return");
@@ -287,7 +287,8 @@
   }
 
   const v1Only = ["riskPercent","stopLossPercent","targetRiskReward","fastEma","slowEma",
-    "rsiPeriod","maxTradesPerDay","maxDailyLossPercent","lotSize","longRsiMin","longRsiMax","allowShort"];
+    "rsiPeriod","maxTradesPerDay","maxDailyLossPercent","lotSize","longRsiMin","longRsiMax","allowShort",
+    "feeBps","feePerOrder"];
   $("strategyVersion").addEventListener("change", () => {
     const isV2 = $("strategyVersion").value === "v2";
     $("v2Explanation").hidden = !isV2;
@@ -297,8 +298,7 @@
     $("emptyState").hidden = false;
     $("downloadJson").disabled = true;
     $("downloadCsv").disabled = true;
-    if (isV2) showFeedback("V2 requires a CSV with genuine 15:00 bar-opening prices. " +
-      "The existing 14:55-only CSV is valid for V1 but cannot produce verified V2 square-off results.");
+    if (isV2) showFeedback("V2 requires genuine bar-opening prices through the square-off time in your YAML configuration.");
     else feedback.hidden = true;
   });
   form.addEventListener("submit", runBacktest);

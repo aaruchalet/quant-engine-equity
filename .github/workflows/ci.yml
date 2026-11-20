@@ -24,3 +24,20 @@ jobs:
         run: node --check src/main/resources/static/dashboard.js
       - name: Run tests and build
         run: ./gradlew clean test build --no-daemon
+      - name: Summarize Java coverage
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse('build/reports/jacoco/test/jacocoTestReport.xml').getroot()
+          for kind in ('LINE', 'BRANCH'):
+              counter = root.find(f"counter[@type='{kind}']")
+              covered, missed = int(counter.get('covered')), int(counter.get('missed'))
+              print(f'{kind} coverage: {covered}/{covered + missed} ({100 * covered / (covered + missed):.2f}%)')
+          PY
+      - name: Upload JaCoCo report
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-coverage
+          path: build/reports/jacoco/test/
+          if-no-files-found: error
+          retention-days: 7
