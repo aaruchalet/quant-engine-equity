@@ -180,6 +180,34 @@ class HistoryExporterTests(unittest.TestCase):
         self.assertIn('access-rate restriction',str(caught.exception))
         self.assertNotIn('sensitive-debug-string',str(caught.exception))
 
+    def test_v2_1500_uses_distinct_cache_and_retains_real_last_open(self):
+        start = dt.date(2026, 5, 20)
+        old = mod.checkpoint_path(Path('/tmp/history'), '123', start, start)
+        new = mod.checkpoint_path(Path('/tmp/history'), '123', start, start, dt.time(15, 0))
+        self.assertNotEqual(old, new)
+        self.assertTrue(new.name.endswith('-1500.json'))
+        rows = fake_day(start) + [
+            [f'{start}T15:00:00+05:30', 100, 101, 99, 100.5, 123],
+            [f'{start}T15:05:00+05:30', 100, 101, 99, 100.5, 123]
+        ]
+        out = mod.collect_history(start, start, '123', {}, pause=0,
+                                  last_open=dt.time(15, 0), fetcher=lambda *args: rows)
+        self.assertEqual(len(out), 70)
+        self.assertIn(dt.datetime(2026,5,20,15,0),out)
+        self.assertNotIn(dt.datetime(2026,5,20,15,5),out)
+        with self.assertRaises(mod.DownloadError):
+            mod.validate_row(rows[-1], dt.time(15, 0))
+
+    def test_v2_broker_request_end_at_1500(self):
+        import io
+        import json
+        with mock.patch.object(mod.urllib.request, 'urlopen',
+                               return_value=io.BytesIO(b'{"status":true,"data":[]}')) as call:
+            mod.fetch_batch('123', {}, dt.date(2026,5,20),
+                            dt.date(2026,5,20), dt.time(15,0))
+            self.assertEqual(json.loads(call.call_args.args[0].data)['todate'],
+                             '2026-05-20 15:00')
+
     def test_runtime_env_only_whitelisted_no_execute(self):
         with tempfile.TemporaryDirectory() as td:
             file=Path(td)/'runtime.env'
