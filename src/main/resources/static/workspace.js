@@ -84,16 +84,42 @@
         rupees(result.target),result.pending||'NONE'
       ]]:[], 'No open position for '+market+'. Shared risk budget also applies to the other index.');
     const checkMap=result.riskChecks||{};
+    const gateDescriptions={
+      tradingSession:'Market session must be open',
+      entryWindow:'Configured 09:30–14:45 entry interval',
+      entriesAvailable:'Daily entry limit has capacity',
+      dailyLossNotReached:'Shared daily loss cutoff not reached',
+      dailyProfitNotReached:'Shared daily profit cutoff not reached',
+      sharedPositionAvailable:'Only one NIFTY/SENSEX option position at a time',
+      entriesNotPaused:'Pause, rejection and kill-switch controls'
+    };
+    const gateNames={
+      tradingSession:'Market open',entryWindow:'Entry window',
+      entriesAvailable:'Trade capacity',dailyLossNotReached:'Daily loss limit',
+      dailyProfitNotReached:'Daily profit limit',
+      sharedPositionAvailable:'Shared position',entriesNotPaused:'Entry permissions'
+    };
     const risk=dataTable('Pre-entry and risk gates',
-      ['Check','Current state','Explanation'],
-      Object.entries(checkMap).map(([k,v])=>[k,v?'PASS':'BLOCK',
-        k==='sharedPositionAvailable'?'Only one NIFTY/SENSEX option position at a time':
-        k==='entriesNotPaused'?'Pause file, rejection and halt controls':'Startup YAML and current session state']),
+      ['Risk check','Status','Meaning'],
+      Object.entries(checkMap).map(([k,v])=>[gateNames[k]||k,v?'PASS':'BLOCK',
+        gateDescriptions[k]||'Configured operating gate']),
       'Risk checks are inactive until PAPER or LIVE is configured.');
-    const settings=dataTable('YAML strategy settings',
-      ['Parameter','Configured value'],strategyKeys.map(([label,key])=>[
-        label, result.strategy?.[key]
-      ]),'Strategy settings unavailable.');
+    risk.classList.add('risk-panel');
+    risk.querySelectorAll('tbody tr').forEach(tr=>{
+      const status=tr.cells[1];
+      if(status)status.replaceChildren(badge(status.textContent));
+    });
+    const settings=node('div',null,'settings-panel');
+    settings.append(node('h3','YAML strategy settings'));
+    const settingsGrid=node('dl',null,'strategy-settings');
+    for(const [label,key] of strategyKeys){
+      const item=node('div',null,'strategy-setting');
+      item.append(node('dt',label),node('dd',asText(result.strategy?.[key])));
+      settingsGrid.append(item);
+    }
+    settings.append(settingsGrid);
+    const indexSplit=node('div',null,'index-split');
+    indexSplit.append(risk,settings);
     const traces=result.evaluations||[];
     const decisions=dataTable('Live strategy evaluation log · latest first',
       ['Recorded','Candle (IST)','Stage','EMA9','EMA20','RSI14','VWAP','Cross','Candidate','EMA','RSI','VWAP last','Decision / reason'],
@@ -107,7 +133,7 @@
       ]),'No signal evaluations yet. They are recorded during market hours when the runner successfully receives completed candles.');
     const statusText=result.enabled ? 'PAPER uses simulated orders; LIVE uses the broker path. Both use the same EMA → RSI → VWAP sequence and risk checks.'
       : 'Trading is inactive. In the application YAML, select PAPER or LIVE, restart the server, and complete broker preflight. A web click never enables LIVE.';
-    view.replaceChildren(row,paragraph(statusText),summary,positionPanel,risk,settings,decisions);
+    view.replaceChildren(row,paragraph(statusText),summary,positionPanel,indexSplit,decisions);
   }
   const loading={};
   async function refreshIndex(market) {
@@ -157,6 +183,155 @@
     paragraph('The automated feed currently requests official NSE data only. These other websites are reference links, not automatically scraped or treated as verified.'));
 
   const quoteState={symbol:null};
+
+  const equityPaneNames=['Discover','Research','Backtest'];
+  function selectEquityPane(pane) {
+    for(const name of equityPaneNames){
+      const active=name===pane, tab=byId('equity'+name+'Tab');
+      const content=byId('equity'+name+'Pane');
+      tab.setAttribute('aria-selected',String(active));
+      tab.tabIndex=active?0:-1;
+      content.hidden=!active;
+    }
+  }
+  for(const name of equityPaneNames){
+    byId('equity'+name+'Tab').onclick=()=>selectEquityPane(name);
+  }
+  const researchState={candidate:null,inFlight:false};
+  const researchMoney=value=>value==null?'—':rupees(value);
+  const researchNumber=value=>value==null?'—':numeric(value);
+  function researchLinks(symbol) {
+    const links=externalSymbolLinks(symbol);
+    const extra=[
+      ['BSE announcements','https://www.bseindia.com/corporates/ann.html'],
+      ['SEBI notices','https://www.sebi.gov.in/'],
+      ['AMFI classifications','https://www.amfiindia.com/otherdata/categorisation-of-stocks']
+    ];
+    for(const [name,url] of extra){
+      const a=node('a',name);a.href=url;a.target='_blank';a.rel='noopener noreferrer';
+      links.append(a);
+    }
+    return links;
+  }
+  function renderResearch(data,candidate) {
+    const out=byId('equityResearchDetail');
+    const heading=node('div',null,'research-heading');
+    heading.append(node('h3',asText(candidate.company||data.symbol)+' · '+data.symbol),
+      badge(data.status==='PRELIMINARY_RESEARCH'?'PRELIMINARY DATA':'PARTIAL DATA'));
+    const meta=paragraph('Verified exchange '+data.exchange+' · ISIN '+data.isin+
+      ' · Latest session '+asText(data.asOf)+' · Retrieved '+asText(data.retrievedAt)+
+      ' · '+data.observedSessions+'/'+data.requiredSessions+' sessions.');
+    const summary=metricTiles([
+      ['Official EOD close',researchMoney(data.latestClose)],
+      ['Previous close',researchMoney(data.previousClose)],
+      ['Daily change',data.priceChangePercent==null?'—':researchNumber(data.priceChangePercent)+'%'],
+      ['20-session avg turnover',data.averageTradedValueCr==null?'UNVERIFIED':'₹'+researchNumber(data.averageTradedValueCr)+' cr'],
+      ['Indicative EMA 9',researchMoney(data.ema9Indicative)],
+      ['Indicative EMA 20',researchMoney(data.ema20Indicative)],
+      ['Indicative RSI 14',researchNumber(data.rsi14Indicative)],
+      ['Observed-period range',researchMoney(data.periodLow)+' – '+researchMoney(data.periodHigh)]
+    ]);
+    const limitations=node('div',null,'research-coverage');
+    limitations.append(node('h3','Data quality and limitations'));
+    const limitationList=node('ul');
+    for(const warning of data.limitations||[])limitationList.append(node('li',warning));
+    limitations.append(limitationList);
+    const checks=node('div',null,'research-missing');
+    checks.append(node('h3','Verification still required before a BUY decision'));
+    const checklist=node('ul');
+    for(const check of data.missingChecks||[])checklist.append(node('li',check));
+    checks.append(checklist);
+    const prices=Array.isArray(data.dailyPrices)?data.dailyPrices.slice().reverse():[];
+    const history=dataTable('Official dated closing-price history',
+      ['Session','Close','Traded value (₹cr)','Archive source'],
+      prices.map(p=>[p.session,researchMoney(p.close),researchNumber(p.tradedValueCr),'Official archive']),
+      'No verified session history available.');
+    const cells=history.querySelectorAll('tbody tr');
+    cells.forEach((row,i)=>{
+      const p=prices[i],cell=row.cells[3];
+      if(!p||!cell)return;
+      if(/^https:\/\/(nsearchives\.nseindia\.com|www\.bseindia\.com)\//.test(p.source)){
+        const a=node('a','View exchange report');
+        a.href=p.source;a.target='_blank';a.rel='noopener noreferrer';
+        cell.replaceChildren(a);
+      }
+    });
+    out.replaceChildren(heading,meta,summary,
+      paragraph('Preliminary exchange-history research only. No verified buy signal, stop, target, probability of profit or full fundamental score can be inferred from these archives.','notice'),
+      limitations,checks,researchLinks(data.symbol),history);
+  }
+  async function researchCandidate(candidate) {
+    if(!candidate || !/^INE[A-Z0-9]{9}$/.test(candidate.isin||'')
+        || !['NSE','BSE'].includes(candidate.exchange)) {
+      selectEquityPane('Research');
+      byId('equityResearchDetail').replaceChildren(paragraph(
+        'A verified ISIN and NSE/BSE listing are required. Select a candidate from Discover.','error'));
+      return;
+    }
+    researchState.candidate=candidate;
+    selectEquityPane('Research');
+    const out=byId('equityResearchDetail'),button=byId('researchRefresh');
+    out.replaceChildren(paragraph('Researching '+asText(candidate.company||candidate.symbol)+
+      ' using dated official '+candidate.exchange+' exchange archives…'));
+    button.disabled=true;
+    researchState.inFlight=true;
+    try {
+      const data=await fetchJSON('/api/equity/research?isin='+encodeURIComponent(candidate.isin)+
+        '&exchange='+encodeURIComponent(candidate.exchange)+'&ts='+Date.now());
+      if(researchState.candidate!==candidate)return;
+      renderResearch(data,candidate);
+    } catch(error) {
+      out.replaceChildren(paragraph('Unable to complete exchange research: '+error.message,'error'),
+        researchLinks(candidate.symbol));
+    } finally {
+      researchState.inFlight=false;button.disabled=false;
+    }
+  }
+  byId('researchRefresh').onclick=()=>{
+    if(researchState.candidate&&!researchState.inFlight)researchCandidate(researchState.candidate);
+  };
+  function candidateTable(rows) {
+    const wrap=node('div',null,'table-wrap candidates');
+    wrap.append(node('h3','AMFI-classified small-cap candidates · select a row to research'));
+    if(!rows.length){
+      wrap.append(paragraph('No eligible candidates could be verified from official reports.'));
+      return wrap;
+    }
+    const table=node('table',null,'candidate-table');
+    const head=table.createTHead().insertRow();
+    for(const heading of ['Company','Exchange','Symbol','Official close','Session',
+      '20-session turnover (₹cr)','Coverage','Action'])head.append(node('th',heading));
+    const tbody=table.createTBody();
+    for(const candidate of rows.slice(0,100)){
+      const tr=tbody.insertRow();
+      tr.className='candidate-row';
+      tr.tabIndex=0;
+      tr.setAttribute('aria-label','Research '+asText(candidate.company)+' · '+candidate.symbol);
+      tr.onclick=()=>researchCandidate(candidate);
+      tr.onkeydown=e=>{
+        if(e.target===tr&&(e.key==='Enter'||e.key===' ')){
+          e.preventDefault();researchCandidate(candidate);
+        }
+      };
+      const first=tr.insertCell(),link=node('button',candidate.company,'table-link');
+      link.type='button';link.onclick=e=>{e.stopPropagation();researchCandidate(candidate);};
+      first.append(link);
+      for(const value of [candidate.exchange,candidate.symbol,rupees(candidate.close),candidate.session,
+        candidate.turnoverCr==null?'UNVERIFIED':numeric(candidate.turnoverCr)]){
+        tr.append(node('td',asText(value)));
+      }
+      const status=tr.insertCell(),decision=asText(candidate.decision);
+      status.append(badge(decision==='RESEARCH REQUIRED'?'HISTORY VERIFIED':
+        decision==='BELOW LIQUIDITY FLOOR'?'BELOW LIQUIDITY FLOOR':'PARTIAL DATA'));
+      const action=tr.insertCell(),open=node('button','Research','secondary');
+      open.type='button';open.onclick=e=>{e.stopPropagation();researchCandidate(candidate);};
+      action.append(open);
+    }
+    wrap.append(table);
+    if(rows.length>100)wrap.append(paragraph('Showing the first 100 candidates. Refine the price band to narrow the results.'));
+    return wrap;
+  }
+
   function externalSymbolLinks(symbol) {
     const strip=encodeURIComponent(symbol),panel=node('div',null,'source-links');
     const links=[
@@ -181,6 +356,13 @@
       ' · '+asText(quote.exchange)+' / '+asText(quote.isin)),
       paragraph('NOT LIVE. AMFI classification, financial statements, liquidity/depth, surveillance clearance and tradeable setup have not been verified. No BUY recommendation can be issued.'),
       externalSymbolLinks(quote.symbol));
+    if(quote.isin && ['NSE','BSE'].includes(quote.exchange)){
+      const action=node('button','Research '+quote.symbol);
+      action.type='button';
+      action.onclick=()=>researchCandidate({exchange:quote.exchange,symbol:quote.symbol,
+        isin:quote.isin,company:quote.company});
+      root.append(action);
+    }
   }
   async function showEquity(symbol) {
     if(!/^[A-Z0-9&_.-]{1,25}$/.test(symbol)) return;
@@ -246,17 +428,7 @@
       const warning=paragraph('Exchange closing dates: '+(dates||'Unavailable')+' · Retrieved '+asText(scan.retrievedAt)+
         ' · Holding period: '+low+'–'+high+' trading sessions. This scan checks AMFI, ISIN, prices and 20-session traded value only. Governance, financials, surveillance, volume chart and net R:R have NOT been verified.','notice');
       const data=Array.isArray(scan.candidates)?scan.candidates:[];
-      const results=dataTable('AMFI-classified small-cap candidates',
-        ['Company','Exchange','Symbol','Official close','Session','20-session turnover (₹cr)','Research state'],
-        data.map(s=>[s.company,s.exchange,s.symbol,rupees(s.close),s.session,
-          s.turnoverCr==null?'UNVERIFIED':numeric(s.turnoverCr),s.decision]),
-        'No complete eligible candidates could be verified.');
-      const inspect=node('div',null,'search-results');
-      for(const s of data.slice(0,100)){
-        const b=node('button','Inspect '+s.symbol,'secondary');b.type='button';
-        b.onclick=()=>{showEquity(s.symbol);byId('equityQuery').scrollIntoView({behavior:'smooth'});};
-        inspect.append(b);
-      }
+      const results=candidateTable(data);
       const sourceLinks=node('div',null,'source-links');
       for(const url of [scan.amfiSource,...(scan.exchangeSources||[])]){
         if(!url || !String(url).startsWith('https://')) continue;
@@ -264,7 +436,7 @@
         a.title=url;sourceLinks.append(a);
       }
       out.replaceChildren(summary,warning,...(scan.limitations||[]).map(message=>paragraph(message,'notice')),
-        results,inspect,sourceLinks);
+        results,sourceLinks);
     } catch(e) {
       out.replaceChildren(paragraph('Fresh AMFI/exchange discovery unavailable: '+e.message+
         '. No cached or invented stock picks will be substituted.','error'));
