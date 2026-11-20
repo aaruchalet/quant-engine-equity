@@ -14,6 +14,14 @@ public final class CsvHistoryRepository {
     public record History(List<Candle> candles, List<String> skippedSessions, int completeSessions) {}
 
     public History load(Path file, LocalDate through) throws IOException {
+        return load(file, through, LocalTime.of(14, 55));
+    }
+
+    /** V2 must have genuine 15:00 opening-price bars; V1 remains at 14:55. */
+    public History load(Path file, LocalDate through, LocalTime requiredLastBar) throws IOException {
+        if (!requiredLastBar.equals(LocalTime.of(14, 55))
+                && !requiredLastBar.equals(LocalTime.of(15, 0)))
+            throw new IllegalArgumentException("Supported history cutoffs are 14:55 (V1) or 15:00 (V2)");
         if (!Files.isRegularFile(file)) throw new IllegalArgumentException(
                 "No history CSV at " + file + ". Supply real licensed OHLCV candles via HISTORY_CSV_PATH");
         List<String> lines = Files.readAllLines(file);
@@ -46,7 +54,7 @@ public final class CsvHistoryRepository {
         for (var day : days.entrySet()) {
             TreeMap<LocalTime, Candle> bars = day.getValue();
             boolean allPresent = true;
-            for (LocalTime t = LocalTime.of(9, 15); !t.isAfter(LocalTime.of(14, 55)); t = t.plusMinutes(5)) {
+            for (LocalTime t = LocalTime.of(9, 15); !t.isAfter(requiredLastBar); t = t.plusMinutes(5)) {
                 if (!bars.containsKey(t)) { allPresent = false; break; }
             }
             if (!allPresent) {
@@ -54,18 +62,19 @@ public final class CsvHistoryRepository {
                 continue;
             }
             // An index dataset with 0 volume cannot support valid session VWAP.
-            if (bars.values().stream().filter(b -> !b.openTime().toLocalTime().isAfter(LocalTime.of(14, 55)))
+            if (bars.values().stream().filter(b -> !b.openTime().toLocalTime().isAfter(requiredLastBar))
                     .mapToDouble(Candle::volume).sum() <= 0) {
                 skipped.add(day.getKey() + ": zero traded volume; VWAP not valid");
                 continue;
             }
             validDays++;
             // Do not consume candles after square-off. They cannot affect a closed intraday strategy.
-            bars.values().stream().filter(b -> !b.openTime().toLocalTime().isAfter(LocalTime.of(14, 55)))
+            bars.values().stream().filter(b -> !b.openTime().toLocalTime().isAfter(requiredLastBar))
                     .forEach(complete::add);
         }
         if (complete.isEmpty()) throw new IllegalArgumentException(
-                "No complete 5-minute sessions available through " + through + "; check CSV and volume");
+                "No complete 5-minute sessions through " + requiredLastBar + " available through "
+                        + through + "; V2 requires real 15:00 OPEN candles, not inferred 14:55 closes");
         return new History(List.copyOf(complete), List.copyOf(skipped), validDays);
     }
 }
