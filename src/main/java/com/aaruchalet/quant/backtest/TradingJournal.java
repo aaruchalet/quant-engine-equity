@@ -6,6 +6,8 @@ import java.nio.file.*;
 import java.sql.*;
 import java.time.*;
 import static com.aaruchalet.quant.backtest.SmartMarket.Contract;
+import com.aaruchalet.quant.backtest.IndexOptionsReplay.Index;
+import java.util.*;
 
 /** Embedded, single-process H2 database. Commit the intent before contacting the broker. */
 final class TradingJournal implements AutoCloseable {
@@ -37,6 +39,8 @@ final class TradingJournal implements AutoCloseable {
         db=DriverManager.getConnection("jdbc:h2:file:" + path + ";WRITE_DELAY=0","sa","");
         try (var stmt=db.createStatement()) {
             stmt.execute("CREATE TABLE IF NOT EXISTS journal (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, recorded TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, event VARCHAR, snapshot CLOB)");
+            stmt.execute("CREATE TABLE IF NOT EXISTS strategy_trace (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, recorded TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, market VARCHAR(8) NOT NULL, detail CLOB NOT NULL)");
+            stmt.execute("CREATE INDEX IF NOT EXISTS ix_strategy_trace_market_id ON strategy_trace(market,id)");
         }
     }
 
@@ -57,6 +61,31 @@ final class TradingJournal implements AutoCloseable {
                 State s=json.readValue(r.getString(3),State.class);
                 result.add(java.util.Map.of("time",r.getString(1),"event",r.getString(2),"quantity",s.quantity,
                         "spent",s.spent,"realizedPnl",s.pnl,"instrument",s.contract == null ? "" : s.contract.instrument().symbol()));
+            }
+        }
+        return result;
+    }
+    /** Diagnostic history is stored separately from order intents, and never drives execution. */
+    synchronized void trace(Index market, Map<String,Object> detail) throws Exception {
+        try (var stmt = db.prepareStatement("INSERT INTO strategy_trace(market,detail) VALUES (?,?)")) {
+            stmt.setString(1,market.name());
+            stmt.setString(2,json.writeValueAsString(detail));
+            stmt.executeUpdate();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    synchronized List<Map<String,Object>> traces(Index market) throws Exception {
+        var result = new ArrayList<Map<String,Object>>();
+        try (var stmt = db.prepareStatement("SELECT recorded, detail FROM strategy_trace WHERE market=? ORDER BY id DESC LIMIT 60")) {
+            stmt.setString(1,market.name());
+            try (var rows = stmt.executeQuery()) {
+                while (rows.next()) {
+                    var item = new LinkedHashMap<String,Object>();
+                    item.put("recorded",rows.getString(1));
+                    item.putAll(json.readValue(rows.getString(2),Map.class));
+                    result.add(item);
+                }
             }
         }
         return result;
