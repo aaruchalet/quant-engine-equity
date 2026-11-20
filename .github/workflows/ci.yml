@@ -47,6 +47,13 @@ jobs:
               covered, missed = int(counter.get('covered')), int(counter.get('missed'))
               print(f'{kind} coverage: {covered}/{covered + missed} ({100 * covered / (covered + missed):.2f}%)')
           PY
+      - name: Upload standalone application
+        uses: actions/upload-artifact@v4
+        with:
+          name: standalone-jar
+          path: build/libs/quant-engine-test-0.0.1-SNAPSHOT.jar
+          if-no-files-found: error
+          retention-days: 7
       - name: Upload JaCoCo report
         uses: actions/upload-artifact@v4
         with:

@@ -4,7 +4,7 @@ Run one Java 21 application on one execution host. It connects directly to Angel
 
 ## Choose the mode
 
-Edit `trading.mode` in `src/main/resources/application.yml` before building. For a packaged JAR, put an external `application.yml` beside it and restart. This complete override selects automated paper trading:
+Edit `trading.mode` in `src/main/resources/application.yml` before building. For a packaged JAR, put an external `application.yml` in the directory from which you run `java`, or pass its absolute file location with `--spring.config.additional-location=file:/absolute/path/application.yml`. Restart after editing. This complete override selects automated paper trading:
 
 ```yaml
 trading:
@@ -31,6 +31,8 @@ git clone https://github.com/aaruchalet/quant-engine-test.git
 cd quant-engine-test
 ./gradlew clean test bootJar
 ```
+
+   Alternatively download the `standalone-jar` artifact from a successful GitHub Actions run, unzip it, and use its JAR path in the commands below. The artifact contains the packaged YAML defaults.
 
 3. Before the trading session, authenticate with that app's key, client code, PIN and current TOTP. The helper prompts privately, verifies outbound IPv4, and writes an owner-only credentials file. Its default registered IP is the existing Trading test host. For another registered host, set `ANGEL_ONE_REGISTERED_PUBLIC_IP` to the address registered for that app before login. Repeat after session expiry. Keep the host clock synchronized.
 
