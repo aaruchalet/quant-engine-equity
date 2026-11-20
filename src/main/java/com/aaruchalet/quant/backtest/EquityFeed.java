@@ -19,11 +19,15 @@ class EquityFeed {
         this.screen = screen;
         this.json = json;
     }
+    EquityScreen.Snapshot read() throws IOException {
+        return Files.isRegularFile(path) ? json.readValue(path.toFile(), EquityScreen.Snapshot.class) : null;
+    }
+
     @PostMapping("/api/equity/screen/latest")
     ResponseEntity<?> latest(@RequestBody EquityScreen.Config config) throws IOException {
-        if (!Files.isRegularFile(path)) return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+        var snapshot = read();
+        if (snapshot == null) return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(java.util.Map.of("error","No research feed configured. Import a dated equity snapshot to screen."));
-        var snapshot = json.readValue(path.toFile(),EquityScreen.Snapshot.class);
         return ResponseEntity.ok(screen.screen(new EquityScreen.Request(config,snapshot)));
     }
 }

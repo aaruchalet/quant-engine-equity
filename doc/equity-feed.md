@@ -83,3 +83,21 @@ is required to use the dashboard.
 governance/surveillance; high earnings/cash/debt, trend/volume/support, valuation,
 near-term catalysts, stop and net reward:risk; medium promoter and FII/DII trends.
 Missing critical evidence is `UNVERIFIED` or `INSUFFICIENT DATA`.
+
+## Per-share company decision
+
+Select a Discover result or a verified lookup result, then open **Research**. The page uses the Discover price band, holding window and optional capital. Position defaults to NONE for each new listing. HELD accepts optional quantity, cost per share, the holder’s recorded stop and entry date. UNKNOWN always gives WAIT. Editing a holding requires a new evaluation. JSON export contains the exact report shown.
+
+POST the listing and the same settings to `/api/equity/research?exchange=NSE&isin=<ISIN>`:
+
+```json
+{"config":{"minPrice":10,"maxPrice":100,"minSessions":20,"maxSessions":45,"capital":100000},"positionStatus":"NONE"}
+```
+
+The archive GET is backwards-compatible. The POST joins the exchange and ISIN against the dated snapshot, reuses the existing seven-category rubric, checks each source date, and evaluates the position. A pending trigger remains WAIT. An unrelated or expired setup cannot substitute for the holder’s recorded stop. A held time stop counts observed exchange sessions. News headlines alone cannot authorize an entry or exit. Fees, taxes and expected slippage belong in the supplied cost scenarios. Held reward/risk starts from the observed price and excludes sunk entry costs.
+
+The automatic inputs are AMFI classification, official EOD price/turnover and exact issuer matches from the NSE/BSE announcements RSS. RSS covers recent publications; an empty list does not establish that nothing material happened. Long-history overlays, sector/peer comparisons, filings, surveillance and derived trade plans require dated provider evidence. Supply the existing snapshot file or configure an authorized HTTPS endpoint with `TRADING_EQUITY_PROVIDER_URL` serving the same schema. The application reads the file on each evaluation, or polls the endpoint with a 30-second cache and retries failed reads after 15 seconds. Watched listings refresh exchange data and announcements every 30 minutes while the process is running. A refresh failure preserves the original source dates and blocks a new entry when stale data is used.
+
+Optional evidence properties `value`, `previous`, `trend`, `benchmark` and `period` populate comparable financial, shareholder and valuation rows; use explicit units and filing periods. Existing `rationale`, `source`, `asOf` and `passed` retain their meanings. For example, the key `eps` can supply rupees per diluted share from the quarter’s published results. Use `materialAdverseEvent.passed=true` only for an explicitly attested material adverse event with a dated citation. Missing evidence is displayed as N/A. The 20-session archive is unadjusted and cannot generate the long-history indicators.
+
+Each analysis atomically saves an immutable report and its matched provider inputs at `data/equity/research/<exchange>-<isin>/<id>.json`. The directory includes position inputs and should remain local. Override with `TRADING_EQUITY_RESEARCH_DIRECTORY`. No research endpoint submits orders. The implementation specification is [share-research-prompt.md](share-research-prompt.md).
