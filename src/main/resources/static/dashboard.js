@@ -65,10 +65,14 @@
       through: $("through").value,
       allowShort: $("allowShort").checked
     };
-    for (const field of numericFields) request[field] = Number($(field).value);
+    const isV2 = $("strategyVersion").value === "v2";
+    // V2 EMA, RSI, VWAP, stop/target, times and daily limits are external YAML config,
+    // not stale/disabled V1 form fields. Only capital and execution costs vary per run.
+    const fields = isV2 ? ["initialCapital", "slippageBps", "feeBps", "feePerOrder"] : numericFields;
+    for (const field of fields) request[field] = Number($(field).value);
     if (request.from > request.through) throw new Error("The start date must not be later than the end date.");
-    if (request.fastEma >= request.slowEma) throw new Error("Slow EMA must be greater than fast EMA.");
-    if (request.longRsiMin >= request.longRsiMax) throw new Error("Long RSI minimum must be below maximum.");
+    if (!isV2 && request.fastEma >= request.slowEma) throw new Error("Slow EMA must be greater than fast EMA.");
+    if (!isV2 && request.longRsiMin >= request.longRsiMax) throw new Error("Long RSI minimum must be below maximum.");
     return request;
   }
 
