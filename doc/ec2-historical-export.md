@@ -22,10 +22,12 @@ From your local clone of **`quant-engine-test`**:
 
 ```bash
 git pull origin main
-EC2_SSH=ubuntu@quant-engine.aaruchalet.com ./scripts/pull-history-from-ec2.sh
+EC2_SSH=ubuntu@ACTUAL_EC2_PUBLIC_IP ./scripts/pull-history-from-ec2.sh
 ```
 
-If your SSH setup uses a different host alias, for example `quant-prod`, set `EC2_SSH=quant-prod`. Configure your private SSH key or AWS-managed access **outside this repository**.
+**Find the host before running:** AWS Console → EC2 → Region `ap-south-1` → Instances → instance tagged `quant-engine-prod` → **Public IPv4 address**. The application domain `quant-engine.aaruchalet.com` is not a verified SSH endpoint. If your SSH setup uses an alias, e.g. `quant-prod`, set `EC2_SSH=quant-prod`. Configure your private SSH key or AWS-managed access **outside this repository**. Your production CI currently opens SSH only temporarily from its own runner, so direct SSH from the Mac may be blocked.
+
+**Before opening SSH:** Use AWS Console **Connect → Session Manager** (if your instance is configured for SSM) or **EC2 Instance Connect** to run `curl -4 -fsS https://api.ipify.org` on the EC2 host. If the result is not the registered Angel One source IP, the downloader will refuse to run; arrange legitimate broker-approved egress instead of changing the request header. Session Manager does not require inbound SSH when correctly configured. If you must permit direct SSH, temporarily allow **only your current Mac public IPv4 /32** on TCP 22, use an authorized SSH key or Instance Connect, and remove the rule afterward.
 
 Default export: `data/niftybees-5min-2026-05-20-to-2026-11-19.csv` on the Mac. The remote export includes **30 extra calendar days for indicator warmup**, and only **complete 09:15–14:55 IST 5-minute sessions** are included. No market data is committed to GitHub.
 
