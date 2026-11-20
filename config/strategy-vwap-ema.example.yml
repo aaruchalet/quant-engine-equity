@@ -1,0 +1,85 @@
+# REFERENCE ONLY — this file is NOT auto-loaded by either Spring Boot service.
+# Implement a validated versioned config loader before using these values in an engine.
+# Mode LIVE is NOT permission to place orders; quant-engine-test never places orders.
+# A real 15:00 square-off requires real 15:00 opening-price data, not the current CSV.
+schemaVersion: 2
+strategyId: VWAP_BOUNCE_EMA_V2
+
+trading:
+  mode: PAPER                       # PAPER | LIVE (parent only; separately authorized)
+  automatedExecutionEnabled: false # must NOT be turned on by loading this example
+  orders:
+    type: MARKET
+    productType: INTRADAY
+    validity: DAY
+
+  positions:
+    defaultQuantity: 1
+    maximumQuantity: 10
+    maximumConcurrentPositions: 1
+
+  session:
+    zone: Asia/Kolkata
+    marketOpen: "09:15"            # true exchange open; VWAP starts here
+    strategyStart: "09:20"         # begin evaluating strategy here
+    entryStart: "09:30"            # earliest actual fill, after confirmed candle
+    lastEntry: "14:45"             # retained from previous spec; configurable
+    squareOff: "15:00"             # forced exit, not the exchange close
+    marketClose: "15:30"           # NSE cash equities normal close; segment-specific
+    carryOver:
+      enabled: false              # true + INTRADAY is invalid
+
+  signal:
+    timeframe: FIVE_MINUTE
+    requireAllFilters: true       # mandatory AND gates
+    ema:
+      enabled: true
+      fastPeriod: 9
+      slowPeriod: 20
+      crossoverRequired: true
+      crossoverScope: CURRENT_SESSION
+    vwap:
+      enabled: true
+      source: HLC3
+      requireLongAbove: true
+      requireShortBelow: true
+      recheckSideAtNextOpen: true
+      bounce:
+        enabled: true
+        priorBouncesRequired: 2
+        triggerBounceNumber: 3
+        touchToleranceBps: 0      # default exact touch; configurable
+        resetOnWrongSideClose: true
+        resetEachSession: true
+    rsi:
+      enabled: true
+      period: 14
+      entry:
+        longAbove: 50             # strict greater than
+        shortBelow: 50            # strict less than
+      exit:
+        enabled: false
+        longBelow: null           # not specified by user; mandatory if enabling exit
+        shortAbove: 55
+
+  exits:
+    exitOnCompositeEntryFilterLoss: false # corrects legacy false "trend reversal"
+    exitOnConfirmedVwapInvalidation: true
+    exitOnConfirmedEmaReversal: false
+
+  risk:
+    stopLoss:
+      enabled: true
+      mode: PERCENT
+      value: 1.0                  # 1% of actual entry price
+    takeProfit:
+      enabled: true
+      mode: PERCENT
+      value: 2.0                  # 2% of actual entry price; not a 2R setting
+    maximumTradesPerDay: 5
+    maximumDailyLossInr: 5000     # realized losses; block new entries
+    maximumDailyProfitInr: 10000  # realized profits; block new entries
+    closePositionOnDailyLoss: false
+
+logging:
+  level: INFO                     # never log credentials/tokens/private client info
