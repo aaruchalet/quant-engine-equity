@@ -29,7 +29,7 @@ class SmartMarket {
     private final long maxAge;
     private LocalDate masterDate;
     private JsonNode master;
-    private LocalDateTime lastQuote;
+    private final Map<String,Long> lastRead = new HashMap<>();
     private final Map<Index,Signal> signals = new EnumMap<>(Index.class);
     private LocalDateTime signalSlot;
 
@@ -38,6 +38,11 @@ class SmartMarket {
     }
 
     JsonNode request(String path, Object body) throws Exception {
+        if (body==null || path.equals("market/v1/quote/")) {
+            long delay = 1_050_000_000L - (System.nanoTime() - lastRead.getOrDefault(path, System.nanoTime()-1_050_000_000L));
+            if (delay>0) java.util.concurrent.TimeUnit.NANOSECONDS.sleep(delay);
+            lastRead.put(path,System.nanoTime());
+        }
         var builder = history.authenticated(URI.create("https://apiconnect.angelone.in/rest/secure/angelbroking/" + path));
         var req = body == null ? builder.GET() : builder.POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body)));
         var resp = http.send(req.build(), HttpResponse.BodyHandlers.ofString());
@@ -121,12 +126,6 @@ class SmartMarket {
     Map<Instrument,Quote> quotes(Instrument... requested) throws Exception {
         var tokens = new HashMap<String,List<String>>();
         for (var i : requested) tokens.computeIfAbsent(i.exchange,k -> new ArrayList<>()).add(i.token);
-        // Broker FULL quote API permits one request per second.
-        if (lastQuote != null) {
-            long wait = Duration.between(LocalDateTime.now(),lastQuote.plusNanos(1_050_000_000L)).toMillis();
-            if (wait > 0) Thread.sleep(wait);
-        }
-        lastQuote = LocalDateTime.now();
         var data = request("market/v1/quote/",Map.of("mode","FULL","exchangeTokens",tokens));
         var result = new HashMap<Instrument,Quote>();
         for (var row : data.path("fetched")) for (var i : requested) {

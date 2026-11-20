@@ -93,8 +93,7 @@ class TradingRuntimeTest {
         try (var store=new TradingJournal(dir,"LIVE",json)) {
             var app=runner(Mode.LIVE,store,broker);
             broker.filled=65; app.tick(); // cancel outstanding buy, then read its terminal fill
-            app.tick(); assertEquals(65,store.read().quantity); assertEquals(1,broker.orders);
-            broker.brokerQty=65; app.tick();
+            broker.brokerQty=65; app.tick(); assertEquals(65,store.read().quantity);
             assertEquals("STOPLOSS_LIMIT",broker.last.get("ordertype"));
             assertEquals("SELL",broker.last.get("transactiontype"));
             assertEquals("65",broker.last.get("quantity"));

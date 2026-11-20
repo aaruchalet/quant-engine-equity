@@ -1,10 +1,6 @@
 # quant-engine-test
 
-**EC2-to-Mac NIFTYBEES export:** For a read-only, registered-egress-checked workflow using the existing Quant Engine container and no copied broker credentials, see [EC2 historical export](doc/ec2-historical-export.md). It requires authorized SSH access; GitHub alone cannot connect to a private EC2 host or generate the actual licensed candles.
-
-**Independent EMA(9/20) + Session VWAP(HLC3) + RSI(14) backtesting service.**
-
-Tech stack is intentionally aligned with [`aaruchalet/quant-engine`](https://github.com/aaruchalet/quant-engine) `develop`: Java 21, Gradle Kotlin DSL 9.7.1 wrapper, Spring Boot 4.1.1, and Spring Dependency Management 1.1.7. This standalone service includes only the parent's Spring MVC, Actuator, and corresponding test starters. It does **not** require Postgres, Flyway, Angel One credentials, an exchange connection, or a running parent project.
+Standalone Java 21 / Spring Boot application for historical backtests, live-market paper trading and automated Angel One index-option orders. The default is BACKTEST. Use the [standalone trading runbook](doc/standalone-trading.md) for the exact YAML, authentication, preflight, start and recovery commands. The optional [EC2 historical export](doc/ec2-historical-export.md) uses this application's own broker session.
 
 ## Clone, test and run
 
@@ -99,7 +95,7 @@ All parameter overrides can be sent in the JSON `POST` body. See `BacktestReques
 
 ### Implemented separate V2 — EMA crossover, RSI, then VWAP side
 
-The **new isolated research-only V2** uses `POST /api/backtests/vwap-ema-v2` and is selectable in the local browser dashboard. It does **not** replace the original `/api/backtests/ema-vwap-rsi` V1 simulation or connect to order placement. V2 reads and validates `src/main/resources/strategy-vwap-ema.example.yml` for every run. Set `V2_STRATEGY_CONFIG_PATH` before startup to use a different YAML file. Missing, unknown, or unsupported settings are rejected; there are no silent Java fallback values for V2 strategy settings. The parent repository does not auto-load this file. Logging is initialized by Spring at application startup.
+The **new isolated research-only V2** uses `POST /api/backtests/vwap-ema-v2` and is selectable in the local browser dashboard. It does **not** replace the original `/api/backtests/ema-vwap-rsi` V1 simulation or connect to order placement. V2 reads and validates `src/main/resources/strategy-vwap-ema.example.yml` for every run. Set `V2_STRATEGY_CONFIG_PATH` before startup to use a different YAML file. Missing, unknown, or unsupported settings are rejected; there are no silent Java fallback values for V2 strategy settings. The parent repository does not auto-load this file. Spring Boot initializes application logging at startup.
 
 | Entry gate (strict order) | V2 behavior |
 | --- | --- |
@@ -108,7 +104,7 @@ The **new isolated research-only V2** uses `POST /api/backtests/vwap-ema-v2` and
 | Time, capital, daily limits | Before VWAP: valid entry hours, 1–10 quantity, at most five trades/day, ₹5,000 realized loss and ₹10,000 profit caps |
 | **VWAP FINAL** | Completed candle CLOSE > VWAP for LONG or CLOSE < VWAP for SHORT; a touch or rebound is optional and is not separately scored; recheck the price side at next-bar OPEN |
 | Exit | 1% entry-price stop loss; 2% entry-price profit target; forced square-off at configured **15:00 OPEN** |
-| Trading safety | PAPER-only in `quant-engine-test`; MARKET / INTRADAY / DAY; carry-over false; no live broker order capability |
+| Trading safety | Historical ETF simulation uses MARKET / INTRADAY / DAY and disables carry-over |
 
 #### The V2 dataset is different from the old CSV
 
@@ -146,7 +142,7 @@ Open **http://127.0.0.1:8081/**, choose **V2 · EMA → RSI → VWAP side**, and
 
 ## Scope and limitations
 
-This is research-only with **no live order execution or database**; the included frontend is a local historical-results dashboard. Run the demo to verify application setup, then provide licensed historical data for real results. Intrabar path is not observable from 5-minute OHLC bars. Closed-equity drawdown can understate intratrade risk. Fee and instrument margin models are simplified; a futures/options backtest requires instrument-specific contract metadata and historical tradable prices. It does not reconcile Indian exchange holidays (missing sessions are skipped and reported), market-data licensing, corporate actions, or source-data accuracy.
+The historical backtest endpoints simulate fills. The market runner and its local journal are described in the standalone runbook. Run the demo to verify application setup, then provide licensed historical data for real results. Intrabar path is not observable from 5-minute OHLC bars. Closed-equity drawdown can understate intratrade risk. Fee and instrument margin models are simplified; a futures/options backtest requires instrument-specific contract metadata and historical tradable prices. It does not reconcile Indian exchange holidays (missing sessions are skipped and reported), market-data licensing, corporate actions, or source-data accuracy.
 
 ## Source layout
 
@@ -255,14 +251,14 @@ Some SmartAPI accounts may not be entitled to this endpoint; Angel One can also
 return HTTP 403 or rate-limit errors even at low request rates. The application
 cannot bypass broker permissions or guarantee six months of vendor retention.
 
-This remains **read-only and research-only**: no live trading or broker order calls.
+The historical download endpoint only reads broker data.
 
 
 ### VWAP side clarification (20 Nov 2026)
 
 After the configured EMA crossover, RSI and risk checks pass, a completed candle must close strictly above session VWAP for LONG or strictly below for SHORT. No touch or bounce is required. A touch may occur but is not scored separately. The next bar OPEN must also be on the correct side of the last confirmed VWAP. The historical `VWAP_BOUNCE_EMA_V2` strategy ID remains for compatibility; its name does not imply a required bounce.
 
-EMA periods, RSI thresholds, order quantity, risk limits, times and fee rates are read from the YAML. The supported contract is validated: PAPER mode, five-minute bars, current-session crossover, HLC3 VWAP and the listed mandatory filters. Unsupported options are rejected instead of silently ignored. Capital and slippage remain per-run dashboard/API inputs; V2 rejects the V1 `feeBps`/`feePerOrder` inputs so they cannot silently override the YAML. The configured market open determines which CSV bars feed the indicators; only complete sessions within the requested date range may be simulated. Strategy settings reload on each V2 request; Spring logging changes take effect after restart. The example/default settings above are not fixed values.
+EMA periods, RSI thresholds, order quantity, risk limits, times and fee rates are read from the YAML. The supported contract is validated for five-minute bars, current-session crossover, HLC3 VWAP and the listed mandatory filters. Unsupported options are rejected instead of silently ignored. Capital and slippage remain per-run dashboard/API inputs; V2 rejects the V1 `feeBps`/`feePerOrder` inputs so they cannot silently override the YAML. The configured market open determines which CSV bars feed the indicators; only complete sessions within the requested date range may be simulated. Strategy settings reload on each V2 request; Spring logging changes take effect after restart. The example/default settings above are not fixed values.
 
 ### V2 Angel One fee estimate
 
@@ -278,7 +274,7 @@ Legacy V1 labels the loss of any part of its combined entry condition `TREND_REV
 
 ## NIFTY and SENSEX option replay
 
-The paper endpoint `POST /api/backtests/vwap-ema-v2/options` buys calls for bullish V2 signals and puts for bearish signals. Set the shared daily entry budget, lot cap, signed strike offsets, signal ETF symbols and Angel One Plus options fees in [src/main/resources/index-options.yml](src/main/resources/index-options.yml). Defaults are ₹15,000, up to two lots, ATM calls and puts one listed strike below ATM. A NIFTY lot is 65 units and a SENSEX lot is 20. The existing strategy YAML controls signals, stops, targets and hours. The trade report returns contract identity, lots, quantity, entry/exit premiums, stop, target, fees and exit reason, plus spend and remaining budget per day.
+The historical options endpoint `POST /api/backtests/vwap-ema-v2/options` buys calls for bullish V2 signals and puts for bearish signals. Set the shared daily entry budget, lot cap, signed strike offsets, index and ETF symbols and Angel One Plus options fees in [src/main/resources/index-options.yml](src/main/resources/index-options.yml). Defaults are ₹15,000, automatic whole-lot sizing, ATM calls and puts one listed strike below ATM. A NIFTY lot is 65 units and a SENSEX lot is 20. The existing strategy YAML controls signals, stops, targets and hours. The trade report returns contract identity, lots, quantity, entry/exit premiums, stop, target, fees and exit reason, plus spend and remaining budget per day.
 
 1. Prepare one signal ETF OHLCV CSV per index in the existing history CSV layout. Supply every five-minute bar from configured market open through square-off, inclusive. Provide index spot and full option-chain snapshots for a single chosen expiry at the actual IST bar opens. Include bid and ask quantities in **underlying units**. Keep licensed inputs in `data/options/`.
 2. For NIFTY, choose the expiry on the [NSE option-chain page](https://www.nseindia.com/option-chain) and download the CSV. Convert each snapshot using the metadata actually displayed for that capture. Supply the depth unit used by your export and lot size from the dated contract master. For SENSEX use the [BSE derivatives chain](https://www.bseindia.com/markets/Derivatives/DeriReports/DeriOptionchain.html) or your entitled feed and normalize it to the same JSON format.

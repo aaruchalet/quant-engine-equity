@@ -30,6 +30,8 @@ class TradingRuntime implements DisposableBean {
     private final int entryWindow, timeout;
     private final BigDecimal stopBuffer;
     private final Clock clock;
+    private boolean preflightOnly;
+    private Path pauseFile;
     private LocalDate authenticated;
     private LocalDateTime evaluated;
     private volatile String status = "Starting";
@@ -40,11 +42,13 @@ class TradingRuntime implements DisposableBean {
     TradingRuntime(@Value("${trading.mode}") String mode, JsonMapper json, AngelOneHistoricalClient client,
             @Value("${trading.strategy.options-config-path}") String opts, @Value("${trading.strategy.v2-config-path}") String strat,
             @Value("${trading.runtime.state-directory}") String dir, @Value("${trading.runtime.client-code}") String account,
-            @Value("${trading.runtime.max-quote-age-seconds}") int age, @Value("${trading.runtime.entry-window-seconds}") int entryWindow,
+            @Value("${trading.runtime.max-quote-age-seconds}") int age, @Value("${trading.preflight-only:false}") boolean preflightOnly, @Value("${trading.runtime.entry-window-seconds}") int entryWindow,
             @Value("${trading.runtime.order-timeout-seconds}") int timeout, @Value("${trading.runtime.stop-limit-buffer-percent}") BigDecimal buffer) throws Exception {
         this(Mode.valueOf(mode.strip().toUpperCase(Locale.ROOT)),IndexOptionsConfig.load(SettingsResource.resolve(opts)),VwapEmaV2Config.fromYaml(SettingsResource.resolve(strat)),
-                "BACKTEST".equalsIgnoreCase(mode.strip()) ? null : new TradingJournal(Path.of(dir),mode.strip(),json),
+                preflightOnly || "BACKTEST".equalsIgnoreCase(mode.strip()) ? null : new TradingJournal(Path.of(dir),mode.strip(),json),
                 new SmartMarket(client,json,age),account,entryWindow,timeout,buffer,Clock.system(AngelOneHistoricalClient.IST));
+        this.preflightOnly=preflightOnly;
+        this.pauseFile=Path.of(dir).resolve("pause-entries");
         if (age < 1 || age > 300) throw new IllegalArgumentException("Invalid quote freshness limit");
     }
 
@@ -60,7 +64,7 @@ class TradingRuntime implements DisposableBean {
 
     @Scheduled(fixedDelayString="${trading.runtime.poll-ms}")
     void poll() {
-        if (mode == Mode.BACKTEST) return;
+        if (mode == Mode.BACKTEST || preflightOnly) return;
         try { tick(); }
         catch (Exception ex) {
             String detail = ex instanceof IllegalStateException || ex instanceof IOException || ex instanceof IllegalArgumentException
@@ -100,7 +104,7 @@ class TradingRuntime implements DisposableBean {
             return;
         }
         if (s.quantity>0) { manage(s,squareOff,slot); return; }
-        if (s.entryPaused || squareOff || time.isBefore(strategy.entryStart()) || time.isBefore(strategy.strategyStart())
+        if (paused() || s.entryPaused || squareOff || time.isBefore(strategy.entryStart()) || time.isBefore(strategy.strategyStart())
                 || slot.toLocalTime().isAfter(strategy.lastEntry()) || s.entries>=strategy.maxTradesPerDay()
                 || s.pnl.compareTo(BigDecimal.valueOf(-strategy.maxDailyLossInr()))<=0
                 || s.pnl.compareTo(BigDecimal.valueOf(strategy.maxDailyProfitInr()))>=0) {
@@ -121,10 +125,6 @@ class TradingRuntime implements DisposableBean {
             BigDecimal available=options.dailyBudget().subtract(s.spent);
             if (mode==Mode.LIVE) {
                 ensureBrokerQuantity(contract,0);
-                for (var row:book()) if (!terminal(field(row,"orderstatus"))
-                        && field(row,"symboltoken").equals(contract.instrument().token())
-                        && field(row,"exchange").equals(contract.instrument().exchange()))
-                    throw new IllegalStateException("Existing working order on candidate contract");
                 available=available.min(decimal(market.request("user/v1/getRMS",null),"availablecash"));
             }
             var q=quote(contract);
@@ -132,7 +132,7 @@ class TradingRuntime implements DisposableBean {
             long qty=options.lots(idx,q.ask(),Math.min(q.bidSize(),q.askSize()),available)*idx.lotSize;
             if (qty==0) continue;
             var submitAt=LocalDateTime.now(clock);
-            if (Duration.between(slot,submitAt).toSeconds()>entryWindow || !submitAt.toLocalTime().isBefore(strategy.squareOff())) return;
+            if (paused() || Duration.between(slot,submitAt).toSeconds()>entryWindow || !submitAt.toLocalTime().isBefore(strategy.squareOff())) return;
             s.attempted=slot; s.contract=contract;
             submit(s,Action.BUY,qty,q.ask(),BigDecimal.ZERO);
             return;
@@ -143,21 +143,31 @@ class TradingRuntime implements DisposableBean {
     private Quote quote(Contract c) throws Exception { return market.quotes(c.instrument()).get(c.instrument()); }
 
     private void manage(State s,boolean squareOff,LocalDateTime slot) throws Exception {
-        Quote q=quote(s.contract);
-        if (q.bid().signum()<=0 || q.bidSize()<=0) throw new IllegalStateException("Held contract has no executable bid");
-        if (s.exitReason==null) s.exitReason=exitReason(s,q,squareOff,slot);
+        Quote q;
+        try {
+            q=quote(s.contract);
+            if (q.bid().signum()<=0 || q.bidSize()<=0) throw new IllegalStateException("Held contract has no executable bid");
+            if (s.exitReason==null) s.exitReason=exitReason(s,q,squareOff,slot);
+        } catch (IOException | IllegalStateException unavailable) {
+            if (mode!=Mode.LIVE || squareOff || s.exitReason!=null) throw unavailable;
+            protect(s);
+            return;
+        }
         if (s.exitReason!=null) {
             long qty=Math.min(s.quantity,q.bidSize())/s.contract.index().lotSize*s.contract.index().lotSize;
             if (qty==0) throw new IllegalStateException("Insufficient exit bid quantity");
             if (mode==Mode.LIVE) ensureBrokerQuantity(s.contract,s.quantity);
             submit(s,Action.SELL,qty,q.bid(),BigDecimal.ZERO);
-        } else if (mode==Mode.LIVE) {
-            ensureBrokerQuantity(s.contract,s.quantity);
-            var tick=s.contract.tick();
-            var trigger=roundDown(s.stop,tick).max(tick);
-            var limit=roundDown(trigger.multiply(BigDecimal.ONE.subtract(stopBuffer.movePointLeft(2))),tick).max(tick);
-            submit(s,Action.STOP,s.quantity,limit,trigger);
-        } else status="Paper position open";
+        } else if (mode==Mode.LIVE) protect(s);
+        else status="Paper position open";
+    }
+
+    private void protect(State s) throws Exception {
+        ensureBrokerQuantity(s.contract,s.quantity);
+        var tick=s.contract.tick();
+        var trigger=roundDown(s.stop,tick).max(tick);
+        var limit=roundDown(trigger.multiply(BigDecimal.ONE.subtract(stopBuffer.movePointLeft(2))),tick).max(tick);
+        submit(s,Action.STOP,s.quantity,limit,trigger);
     }
 
     private String exitReason(State s,Quote q,boolean squareOff,LocalDateTime slot) throws Exception {
@@ -206,6 +216,11 @@ class TradingRuntime implements DisposableBean {
         for (var row:data) if (field(row,"symboltoken").equals(c.instrument().token())
                 && field(row,"exchange").equals(c.instrument().exchange()) && "INTRADAY".equals(field(row,"producttype")))
             qty=Math.addExact(qty,decimal(row,"netqty").longValueExact());
+        for (var row:book())
+            if (!terminal(field(row,"orderstatus").toLowerCase(Locale.ROOT))
+                    && field(row,"symboltoken").equals(c.instrument().token())
+                    && field(row,"exchange").equals(c.instrument().exchange()))
+                throw new IllegalStateException("Another working order exists on this contract");
         if (qty!=expected) throw new IllegalStateException("Broker position differs from journal; reconcile before trading");
     }
     private static boolean terminal(String status) { return Set.of("complete","rejected","cancelled","canceled").contains(status); }
@@ -228,7 +243,9 @@ class TradingRuntime implements DisposableBean {
         var orderStatus=field(matched,"orderstatus").toLowerCase(Locale.ROOT);
         long filled=decimal(matched,"filledshares").longValueExact();
         if (terminal(orderStatus)) {
-            finish(s,filled,filled==0?BigDecimal.ZERO:decimal(matched,"averageprice"),orderStatus); return;
+            finish(s,filled,filled==0?BigDecimal.ZERO:decimal(matched,"averageprice"),orderStatus);
+            if (p.action()==Action.BUY && s.quantity>0) manage(s,squareOff,slot);
+            return;
         }
         boolean cancel=squareOff || filled>0;
         if (p.action()==Action.STOP) {
@@ -244,7 +261,7 @@ class TradingRuntime implements DisposableBean {
             if (squareOff) s.exitReason="SQUARE_OFF";
             cancel |= s.exitReason!=null;
         } else {
-            cancel=filled>0 || (p.action()==Action.BUY && squareOff)
+            cancel=filled>0 || (p.action()==Action.BUY && (squareOff || paused()))
                     || Duration.between(p.created(),clock.instant()).getSeconds()>=timeout;
         }
         if (cancel && !orderStatus.contains("cancel pending")) {
@@ -282,6 +299,37 @@ class TradingRuntime implements DisposableBean {
                 +(s.exitReason==null?"":" "+s.exitReason);
         if (s.quantity==0) { s.contract=null; s.exitReason=null; }
         s.pending=null; journal.save(event,s); status=event;
+    }
+
+    private boolean paused() { return pauseFile!=null && java.nio.file.Files.exists(pauseFile); }
+
+    /** A one-shot, read-only check on the actual execution host. */
+    void preflight() throws Exception {
+        if (!preflightOnly) throw new IllegalStateException("Preflight-only launch required");
+        if (account.isBlank() || !account.equalsIgnoreCase(field(market.request("user/v1/getProfile",null),"clientcode")))
+            throw new IllegalStateException("Preflight failed: account mismatch");
+        decimal(market.request("user/v1/getRMS",null),"availablecash"); book();
+        market.request(ORDER+"getPosition",null);
+        var now=LocalDateTime.now(clock);
+        market.loadMaster(now.toLocalDate());
+        boolean inSession=now.getDayOfWeek().getValue()<=5 && !now.toLocalTime().isBefore(strategy.marketOpen())
+                && now.toLocalTime().isBefore(strategy.marketClose());
+        for (Index idx : Index.values()) {
+            var spot=market.underlying(idx,options,false);
+            var etf=market.underlying(idx,options,true);
+            if (inSession) {
+                var quotes=market.quotes(spot,etf);
+                for (Right right: Right.values()) {
+                    var c=market.select(idx,right,quotes.get(spot).ltp(),now.toLocalDate(),
+                            right==Right.CE?options.callOffset():options.putOffset());
+                    if (c==null) throw new IllegalStateException("Preflight: missing option contract");
+                    quote(c);
+                }
+                var slot=now.withMinute(now.getMinute()/5*5).withSecond(0).withNano(0);
+                if (slot.toLocalTime().isAfter(strategy.marketOpen())) market.signal(idx,slot,options,strategy);
+            }
+        }
+        LOG.info("Read-only preflight passed: profile, funds, order book, positions and index/ETF mappings. Session quote check: {}",inSession);
     }
 
     Map<String,Object> snapshot() throws Exception {

@@ -13,7 +13,7 @@ Act as a principal Java/Spring Boot engineer, quantitative strategy engineer, ma
 ### Repository-specific boundaries
 
 - **`quant-engine`** is the parent application. Current baseline (verify on each checkout): Java 21, Spring Boot **4.1.1**, Gradle Kotlin DSL, PostgreSQL/Flyway, Angel One integration, manual PAPER trading, broker/account monitoring and static operator dashboard. **Do not** turn on automatic live trading or broaden its existing broker-order permissions as part of strategy work. Existing authenticated delivery-holding SELL is not a generalized algo-execution gateway.
-- **`quant-engine-test`** is the isolated backtesting research service. Current baseline (verify): Java 21, Spring Boot **4.1.1**, Gradle **9.7.1**, Spring MVC and Actuator; EMA/VWAP/RSI backtesting, CSV loader, synthetic demo, Angel One historical-data download/cache. **No live order placement, no account-order gateway, no mandatory database, no UI dependency.** Keep it clone-and-run with no credentials for its synthetic demo.
+- **`quant-engine-test`** is the standalone Java 21 trading application. Select BACKTEST, PAPER or LIVE using `trading.mode` in Spring application YAML. PAPER uses direct SmartAPI market data and simulated fills. LIVE uses direct SmartAPI order routing, local durable state and broker reconciliation. Historical endpoints stay isolated from execution. [Operating instructions](standalone-trading.md)
 - Both repositories must remain independently buildable; share calculation contracts where justified **without** introducing an unnecessary monorepo, external parent-POM requirement, circular dependency, or copy of broker secrets.
 - If this document describes a feature not present in the current branch, treat it as a **requirement or roadmap item**, not as an assertion that it already works. Read current source/tests/README before deciding the delta.
 
@@ -110,15 +110,16 @@ The research service validates the supported PAPER, five-minute, current-session
 
 ### 3B. NIFTY and SENSEX long-option replay
 
-Use `POST /api/backtests/vwap-ema-v2/options` in the research service. The completed ETF candle supplies the same EMA crossover, RSI and VWAP-side signal as V2. Recheck the ETF open against the confirmed VWAP at the next bar. Use the synchronized **index spot** to select a listed strike and the option book to simulate a fill.
+Use `POST /api/backtests/vwap-ema-v2/options` in the research service. Paired index and ETF candles use the same index EMA/RSI and ETF VWAP-side predicates as the market runner. Legacy ETF-only replays retain ETF EMA/RSI. Recheck the ETF open against the confirmed VWAP at the next bar. Use the synchronized **index spot** to select a listed strike and the option book to simulate a fill.
 
 | Setting | Default | Effect |
 | --- | --- | --- |
 | `dailyBudgetInr` | ₹15,000 | Cumulative entry premiums plus estimated buy fees across both indices per IST session |
-| `maximumLots` | 2 | Buy the largest whole-lot quantity that fits the remaining budget and available two-sided book depth |
+| `maximumLots` | APPLICATION | Buy the largest whole-lot quantity that fits the remaining budget and available two-sided book depth |
 | `callStrikeOffset` | 0 | Bullish signal buys an ATM call |
 | `putStrikeOffset` | −1 | Bearish signal buys a put one listed strike below ATM |
-| `signalSymbols` | NIFTYBEES, SENSEXETF | Traded-volume proxies for the two indices |
+| `signalSymbols` | NIFTY 50, BSE SENSEX | Spot-index prices for EMA/RSI and strike selection |
+| `vwapSymbols` | NIFTYBEES, SENSEXETF | Each ETF supplies its own price and traded volume for VWAP confirmation |
 | `fees` | Angel One Plus equity options | Per-order brokerage, venue-specific exchange/IPFT estimates, SEBI, buy stamp duty, sell STT and GST |
 
 Edit `src/main/resources/index-options.yml` or select a file with `OPTIONS_CONFIG_PATH`. Keep NIFTY at **65 units per lot** and SENSEX at **20** in code. Reject snapshots whose contract lot differs. The closest strike to spot wins, with ties resolved toward the lower strike. Offsets count listed strikes in the supplied expiry. Skip when the chosen strike, adequate depth, or one affordable lot is unavailable. A cheaper put premium is possible and depends on the actual ask.
@@ -140,7 +141,7 @@ Market data and VWAP begin at the actual **09:15** equity session open; strategy
 
 For the ETF backtest, the V2 defaults are **fixed quantity 1 (max 10)**, maximum one position, **1.0% percent-of-entry stop**, **2.0% percent-of-entry profit target**, maximum **5 trades/day**, realized daily loss cutoff **₹5,000**, realized daily profit cutoff **₹10,000**, and **closePositionOnDailyLoss = false**. Daily P&L caps stop additional entries; they do not, by themselves, force-close current positions when that toggle is false. Actual stop/target, allowed VWAP invalidation and mandatory square-off still apply. Make quantities, daily limits and position/exposure/risk constraints validated in external configuration. Preserve separate capital-risk sizing semantics; a 1.0% price stop is not the same as 1.0% of account equity at risk.
 
-Model slippage, gaps, full charges, exchange lot sizes, cash/margins, contract type and real risk exposure. The parent must gate any LIVE trading with explicit user authorization, credential isolation, idempotent orders, stale-quote safeguards, restart reconciliation and broker entitlement checks. A setting alone never authorizes sending real orders. The standalone backtester always remains order-free. Overnight carry must be rejected if product type is INTRADAY.
+Model slippage, gaps, full charges, exchange lot sizes, cash/margins, contract type and real risk exposure. The parent must gate any LIVE trading with explicit user authorization, credential isolation, idempotent orders, stale-quote safeguards, restart reconciliation and broker entitlement checks. A setting alone never authorizes sending real orders. HTTP backtests and demo runs always simulate execution. Overnight carry must be rejected if product type is INTRADAY.
 
 ## 6. Backtesting requirements (initial focus: EMA + VWAP + RSI)
 
@@ -179,7 +180,7 @@ Desired flow:
 
 ## 8. Architecture and contracts
 
-Follow existing packages and patterns rather than forcibly creating microservices. Useful logical modules: `MarketDataAdapter`, `HistoricalMarketDataService`, `CandleValidator`, `CandleAggregator`, `EMA`, `SessionVWAP`, `FibonacciPivot`, `RSI`, `VolumeStatistics`, `StrategyConfiguration`, `StrategyEvaluator`, `BacktestEngine`, `RiskEngine`, `ReportService`, `BrokerAdapter` (parent only), `AlertService`, and `TradingAuditService` (where needed).
+Follow existing packages and patterns rather than forcibly creating microservices. Useful logical modules: `MarketDataAdapter`, `HistoricalMarketDataService`, `CandleValidator`, `CandleAggregator`, `EMA`, `SessionVWAP`, `FibonacciPivot`, `RSI`, `VolumeStatistics`, `StrategyConfiguration`, `StrategyEvaluator`, `BacktestEngine`, `RiskEngine`, `ReportService`, `BrokerAdapter` (market runner), `AlertService`, and `TradingAuditService` (where needed).
 
 Use typed DTOs and validation, explicit clock and exchange calendar boundaries, immutable strategy snapshots, deterministic time series, separation of historical market data from signal and execution. Retain the current Spring Boot **4.1.1**, Java 21 and Gradle Kotlin DSL unless the checked-out repo states otherwise. Never require PostgreSQL or broker credentials for `quant-engine-test`'s synthetic smoke endpoint. Reuse the parent's dependencies only insofar as the test project needs them, not the entire parent dependency graph.
 
@@ -208,4 +209,4 @@ Chart/API design in parent (when requested): instrument/candles/indicators/strat
 6. Provide branch, commit SHA, changed-file summary, test outcomes, run commands, example `curl`, and explicit external prerequisites.
 7. Never activate real money trading, alter production execution rules, or claim verified six-month historical results without valid source data and a completed backtest.
 
-**Primary priority:** preserve V1 evidence and implement the configurable VWAP-side + EMA-crossover **V2** from §3A with risk controls, validated market data and no live-order activation.
+**Primary priority:** preserve V1 evidence and implement the configurable VWAP-side + EMA-crossover **V2** from §3A with risk controls, validated market data and independent mode-specific execution.

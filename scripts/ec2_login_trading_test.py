@@ -19,7 +19,7 @@ import tempfile
 import urllib.error
 import urllib.request
 
-EXPECTED_EGRESS = "13.202.233.29"
+EXPECTED_EGRESS = os.environ.get("ANGEL_ONE_REGISTERED_PUBLIC_IP", "13.202.233.29")
 LOGIN_URL = "https://apiconnect.angelone.in/rest/auth/angelbroking/user/v1/loginByPassword"
 OUTPUT = Path.home() / ".config" / "quant-engine-test" / "trading-test.env"
 JWT_PATTERN = re.compile(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
@@ -99,7 +99,9 @@ def login(api_key: str, client_code: str, pin: str, totp: str, local_ip: str, ma
 
 
 def save_private_credentials(api_key: str, jwt: str, local_ip: str, mac: str,
-                             target: Path = OUTPUT) -> None:
+                             target: Path = OUTPUT, client_code: str = "") -> None:
+    if client_code and not re.fullmatch(r"[a-zA-Z0-9_-]+", client_code):
+        raise LoginError("Invalid client code")
     for field in (api_key, jwt, local_ip, mac):
         if not field or "\n" in field or "\r" in field:
             raise LoginError("Invalid credential value; refusing to write")
@@ -114,6 +116,9 @@ def save_private_credentials(api_key: str, jwt: str, local_ip: str, mac: str,
         f"ANGEL_ONE_API_KEY={api_key}\n"
         f"ANGEL_ONE_JWT_TOKEN={jwt}\n"
         f"ANGEL_ONE_LOCAL_IP={local_ip}\n"
+        f"ANGEL_ONE_CLIENT_LOCAL_IP={local_ip}\n"
+        f"ANGEL_ONE_CLIENT_PUBLIC_IP={EXPECTED_EGRESS}\n"
+        f"ANGEL_ONE_CLIENT_CODE={client_code}\n"
         f"ANGEL_ONE_MAC_ADDRESS={mac}\n"
     )
     temp_path = None
@@ -144,7 +149,7 @@ def main() -> int:
         if not api_key or not client_code or not pin or not re.fullmatch(r"\d{6}", totp):
             raise LoginError("Missing key/client code/PIN or invalid six-digit TOTP")
         jwt = login(api_key, client_code, pin, totp, local_ip, mac)
-        save_private_credentials(api_key, jwt, local_ip, mac)
+        save_private_credentials(api_key, jwt, local_ip, mac, client_code=client_code)
         print("Trading test session saved to private EC2 file (mode 0600).")
         print("Session expires per Angel One policy; repeat this login when necessary.")
         return 0
