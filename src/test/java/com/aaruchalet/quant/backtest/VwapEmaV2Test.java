@@ -39,7 +39,7 @@ class VwapEmaV2Test {
         assertEquals(LocalTime.of(15,0),c.squareOff());
         BacktestReport report=new BacktestEngineV2().run(
                 new CsvHistoryRepository.History(longScenario(false),List.of(),2),
-                request(),c);
+                StrategyConfig.from(request()),c);
         assertTrue(report.totalTrades()>=1,
                 "EMA/RSI then a single VWAP rebound should permit at least one long");
         assertTrue(report.trades().stream().anyMatch(t->t.side()==Side.LONG));
@@ -57,7 +57,7 @@ class VwapEmaV2Test {
     void cancelPendingLongWhenNextOpenLosesVwapSide() {
         BacktestReport report=new BacktestEngineV2().run(
                 new CsvHistoryRepository.History(longScenario(true),List.of(),2),
-                request(),VwapEmaV2Config.from(new MockEnvironment()));
+                StrategyConfig.from(request()),VwapEmaV2Config.from(new MockEnvironment()));
         assertEquals(0,report.totalTrades(),
                 "Never fill a long below the last confirmed VWAP");
     }
