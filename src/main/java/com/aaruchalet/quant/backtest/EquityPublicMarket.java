@@ -8,6 +8,7 @@ import java.time.*;
 import java.util.*;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -29,16 +30,20 @@ class EquityPublicMarket {
     private final URI base;
     private final HttpClient client;
     private final ObjectMapper mapper;
+    private final boolean websiteAccessAuthorized;
     private boolean sessionInitialized;
 
     @Autowired
-    EquityPublicMarket(ObjectMapper mapper) {
-        this(mapper, OFFICIAL);
+    EquityPublicMarket(ObjectMapper mapper,
+            @Value("${trading.equity.nse-website-access-authorized:false}") boolean websiteAccessAuthorized) {
+        this(mapper, OFFICIAL, websiteAccessAuthorized);
     }
-    /** Fixed localhost test origin only. Production always uses the official HTTPS host. */
-    EquityPublicMarket(ObjectMapper mapper, URI origin) {
+
+    /** Tests can inject a loopback fixture. Never accept a remote endpoint from an HTTP client. */
+    EquityPublicMarket(ObjectMapper mapper, URI origin, boolean websiteAccessAuthorized) {
         this.mapper=mapper;
         this.base=origin;
+        this.websiteAccessAuthorized=websiteAccessAuthorized;
         var cookies=new CookieManager();
         cookies.setCookiePolicy(CookiePolicy.ACCEPT_ORIGINAL_SERVER);
         this.client=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
@@ -46,6 +51,9 @@ class EquityPublicMarket {
     }
 
     private synchronized JsonNode get(String path) {
+        if (!websiteAccessAuthorized) throw unavailable(
+                "Automated NSE website data collection is disabled by default under exchange terms. "+
+                "Configure a licensed/authorized data source; do not use an unapproved scraper.");
         try {
             if (!sessionInitialized) {
                 // A normal site entry visit establishes a standard web session; no CAPTCHA or
