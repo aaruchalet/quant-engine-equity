@@ -96,7 +96,32 @@ byId('refresh').onclick = refresh;
 bindRun(byId('screen'),byId('screenResult'),async snapshot => {
   const config = {};
   for (const [key,value] of new FormData(byId('screen'))) if (key !== 'file' && value !== '') config[key] = Number(value);
-  const r = await api(snapshot ? '/api/equity/screen' : '/api/equity/screen/latest',snapshot ? {config,snapshot} : config);
+  if (!snapshot) {
+    const scan = await api('/api/equity/discover', config);
+    const sources = node('details');
+    sources.append(node('summary', 'Data sources and coverage'));
+    const links = node('ul');
+    for (const url of [scan.amfiSource, ...scan.exchangeSources]) {
+      const link = node('a', url);
+      link.href = url;
+      const item = node('li');
+      item.append(link);
+      links.append(item);
+    }
+    sources.append(links);
+    const closingDates = Object.entries(scan.priceDates).map(([exchange, date]) => exchange + ' ' + date);
+    return [
+      metrics([['Result', scan.outcome], ['AMFI small caps', scan.smallCaps], ['Matched by ISIN', scan.mapped],
+        ['In price range', scan.priceMatches], ['Passed liquidity', scan.liquidityPasses]]),
+      node('p', 'Closing data · ' + (closingDates.join(' · ') || 'Unavailable')),
+      ...scan.limitations.map(message => node('p', message)),
+      table('Discovered equities', ['Company','Exchange','Symbol','Close','20-session turnover (₹ cr)','Status'],
+        scan.candidates.map(s => [s.company, s.exchange, s.symbol, money(s.close), s.turnoverCr?.toFixed(2), s.decision]),
+        'No matching equities in the available data.'),
+      sources, download(scan, 'equity-discovery.json')
+    ];
+  }
+  const r = await api('/api/equity/screen', {config,snapshot});
   const evidence = node('div');
   for (const stock of r.results) {
     const detail = node('details'); detail.append(node('summary',stock.symbol+' · '+stock.decision),node('pre',JSON.stringify(stock,null,2))); evidence.append(detail);
