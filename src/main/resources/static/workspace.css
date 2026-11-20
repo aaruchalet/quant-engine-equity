@@ -267,3 +267,66 @@ section[hidden] {
   .mode-row{align-items:flex-start;flex-direction:column}
   .checklist{grid-template-columns:1fr}
 }
+
+
+/* Compact 2026 equity-research and trading-workspace layout. */
+main{padding-top:24px;padding-bottom:38px}
+#nifty h1,#sensex h1{font-size:clamp(27px,3.2vw,37px)}
+#equity h1{font-size:clamp(27px,3.2vw,38px)}
+.index-view>p{margin:10px 0 12px}
+.index-view .metrics{gap:10px;margin:14px 0}
+.index-view .metric{padding:11px 13px;border-radius:9px;min-height:76px}
+.index-view .metric b{font-size:clamp(15px,1.6vw,20px);line-height:1.2;margin-top:3px}
+.index-view .metric{font-size:12px}
+.index-view .table-wrap{margin:12px 0}
+.index-split{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px;margin-top:16px;align-items:start}
+.index-split>.table-wrap,.index-split>.settings-panel{min-width:0;margin:0;background:white;border:1px solid #d5e2db;
+  padding:14px;border-radius:10px;overflow:visible}
+.index-split h3{margin:0 0 12px;font-size:14px;color:#345448}
+.risk-panel table{min-width:0;width:100%;table-layout:fixed}
+.risk-panel th,.risk-panel td{font-size:12px;padding:9px 7px;white-space:normal;overflow-wrap:anywhere;line-height:1.35}
+.risk-panel th:first-child{width:30%}
+.risk-panel th:nth-child(2){width:23%}
+.risk-panel .state-badge{font-size:11px;display:inline-block;white-space:nowrap}
+.strategy-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:0}
+.strategy-setting{min-width:0;padding:8px 10px;border:1px solid #e0e9e4;border-radius:7px;background:#f8faf9}
+.strategy-setting dt{font-size:11px;color:#526966;line-height:1.2}
+.strategy-setting dd{font-size:13px;font-weight:700;color:#193c36;margin:4px 0 0;overflow-wrap:anywhere}
+.index-split+ .table-wrap{margin-top:16px}
+.equity-subtabs{display:flex;gap:6px;margin:20px 0 14px;padding:4px;background:#e7eeeb;
+  border:1px solid #d4e0da;border-radius:10px;width:max-content;max-width:100%}
+.equity-subtabs button{background:transparent;color:#41625a;padding:8px 20px;border-radius:7px;font-size:13px}
+.equity-subtabs button[aria-selected=true]{background:#fff;color:#09614d;box-shadow:0 1px 4px #143b381b}
+.equity-pane[hidden]{display:none}
+#equity .panel{padding:16px 18px}
+#equity .panel>p{margin:7px 0 12px}
+#equity .metrics{gap:9px;margin:14px 0;grid-template-columns:repeat(auto-fit,minmax(145px,1fr))}
+#equity .metric{padding:11px 13px;min-width:0;overflow-wrap:anywhere;border-radius:8px;font-size:12px}
+#equity .metric b{font-size:17px;line-height:1.25;margin-top:4px}
+#screenResult .table-wrap{margin-top:14px}
+.candidate-table{min-width:990px}
+.candidate-table th,.candidate-table td{padding:9px 10px;font-size:12px;vertical-align:middle}
+.candidate-row{cursor:pointer}
+.candidate-row:hover,.candidate-row:focus-visible{background:#ecf7f1;outline:1px solid #9ecfb6}
+.table-link{color:#086550;background:none;border:0;padding:0;font-weight:700;font-size:12px;
+  text-decoration:underline;text-align:left}
+.table-link:hover{text-decoration:none}
+.candidate-table .secondary{padding:6px 10px}
+.candidate-table .state-badge{font-size:10px;white-space:nowrap}
+#equityResearchDetail .research-heading{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+#equityResearchDetail .research-heading h3{font-size:20px;margin:0}
+.research-coverage,.research-missing{background:#f8faf9;border:1px solid #dfebe5;padding:12px 16px;border-radius:8px;margin-top:14px}
+.research-coverage h3,.research-missing h3{font-size:14px;margin:0 0 8px}
+.research-coverage ul,.research-missing ul{margin:0;padding-left:19px;font-size:12px;line-height:1.65}
+#equityResearchDetail .table-wrap{margin-top:18px}
+@media(max-width:1000px){
+  .index-split{grid-template-columns:1fr}
+  .strategy-settings{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media(max-width:730px){
+  .index-view .metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .strategy-settings{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .equity-subtabs{width:100%}
+  .equity-subtabs button{flex:1;padding:8px 5px}
+  .risk-panel th,.risk-panel td{padding:8px 4px}
+}

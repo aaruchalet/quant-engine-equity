@@ -7,6 +7,16 @@ Standalone Java 21 / Spring Boot application for historical backtests, live-mark
 
 
 
+## Compact workspace and clickable equity research
+
+The index dashboards now show **pre-entry risk gates and YAML strategy settings side by side** on larger screens, with a compact responsive layout, readable gate names and the live evaluation log beneath them. They remain read-only operator views and never alter trusted PAPER/LIVE YAML.
+
+Within **Equity**, use **Discover / Research / Backtest** subtabs. Scan AMFI small caps, then select any company row or its **Research** button. The read-only research view calls `GET /api/equity/research?isin=INE...&exchange=NSE` (or BSE) to fetch up to 20 published exchange EOD sessions, showing original source URLs, dates, daily close/turnover, provisional 9/20 EMA and RSI(14), price range, coverage gaps and the outstanding verification checklist. Individual EOD ticker lookup also offers **Research**. Refresh research requests the selected ISIN again.
+
+**IMPORTANT:** This is not completed fundamental research or a BUY recommendation. Exchange archives alone cannot verify current financial statements, ASM/GSM restrictions, ownership or governance, 250 adjusted candles, executable order depth, or fee-adjusted trade plans. Indicator outputs use **unadjusted** 20-session close history and are preliminary; missing data is visible, never invented. The existing `/api/equity/screen/latest` full evidence-snapshot evaluator remains available for independently sourced research data.
+
+Candidate rows open Research instead of leaving `RESEARCH REQUIRED` as a dead-end label. Low liquidity and incomplete histories remain explicitly marked, and a broker order is never initiated from the research view.
+
 ## Three-tab workspace and fresh-source limitations
 
 | UI tab | Purpose | On refresh |

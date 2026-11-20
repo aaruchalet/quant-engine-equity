@@ -31,6 +31,14 @@ Each sourced passing test earns five points. Missing critical evidence prevents 
 
 Capital and availableCash are optional runtime inputs. Without capital, position size is null. Without availableCash, a computed size is provisional. The default risk budget is 0.5% of capital including estimated fees at the stop. Allocation including entry fees is capped at 10%. Depth, cash and whole-share limits also apply.
 
+## On-demand company Research tab
+
+After using **Discover**, click any candidate row to open **Research** inside Equity. The verified ISIN and exchange are retained. The server requests official dated exchange archives through `GET /api/equity/research?isin=<ISIN>&exchange=NSE` (or BSE). A direct ticker lookup also offers **Research** once the ISIN is verified.
+
+The response includes `retrievedAt`, `asOf`, `observedSessions`, `requiredSessions`, `dailyPrices` (each with the original source URL), `averageTradedValueCr` when all 20 matching sessions exist, and indicative `ema9Indicative`, `ema20Indicative`, `rsi14Indicative`. Explicit `missingChecks` and `limitations` are also provided.
+
+A completed **20-session archive history is preliminary research only**: it does not verify 250 corporate-action-adjusted candles, full financial evidence, current exchange surveillance restrictions, or BUY eligibility. Incomplete coverage, stale prices and missing securities are reported rather than silently filled. No broker integration or order path is invoked. This is separate from the existing full-rubric `/api/equity/screen` and dated snapshot feed.
+
 ## Automatic discovery
 
 Start the Spring Boot application, open the Equity tab and press **Scan equities**. The server loads the AMFI classification workbook and official NSE and BSE end-of-day files. It joins by ISIN, applies the configured price band, and calculates average traded value from 20 exchange sessions. A dual listing appears once. The scan selects the newer closing date and then the listing with higher verified turnover. The JSON report includes closing dates, source links, coverage counts and any gaps.

@@ -15,6 +15,12 @@
 <small>INDIAN STOCK RESEARCH</small><h1>Equity research</h1>
 <p>Discover Indian small caps from AMFI and official NSE/BSE end-of-day archives, investigate a particular listed symbol and run an independent historical equity simulation. No AI service is required.</p>
 <div class="notice">Market research uses dated official public reports, not guaranteed live quotes. Downloads may be unavailable or restricted. Every result includes dates and limitations; an unavailable source never becomes a fabricated buy signal.</div>
+<div class="equity-subtabs" role="tablist" aria-label="Equity sections">
+<button type="button" id="equityDiscoverTab" role="tab" aria-controls="equityDiscoverPane" aria-selected="true">Discover</button>
+<button type="button" id="equityResearchTab" role="tab" aria-controls="equityResearchPane" aria-selected="false">Research</button>
+<button type="button" id="equityBacktestTab" role="tab" aria-controls="equityBacktestPane" aria-selected="false">Backtest</button>
+</div>
+<div id="equityDiscoverPane" class="equity-pane" role="tabpanel" aria-labelledby="equityDiscoverTab">
 <article class="panel">
 <div class="heading"><div><small>NSE / BSE CLOSING-PRICE ARCHIVES</small><h2>Find an equity</h2></div><button type="button" id="equityRefresh">Refresh latest close</button></div>
 <form id="equityLookup" class="lookup"><label for="equityQuery">Search NSE/BSE ticker (company-name lookup subject to source metadata)</label><div class="inline-controls"><input name="q" id="equityQuery" placeholder="Search e.g. TATA, SBIN, ... " minlength="2" autocomplete="off" required><button type="submit">Find listed equities</button></div></form>
@@ -33,6 +39,13 @@
 </form>
 <div id="screenResult" aria-live="polite"></div>
 </article>
+</div>
+<div id="equityResearchPane" class="equity-pane" role="tabpanel" aria-labelledby="equityResearchTab" hidden>
+<article class="panel">
+<div class="heading"><div><small>ON-DEMAND EXCHANGE RESEARCH</small><h2>Company research</h2></div><button type="button" id="researchRefresh" disabled>Refresh research</button></div>
+<p>Select any candidate in Discover to retrieve verified closing-price history, rolling liquidity and indicative technical indicators. Fundamental and surveillance evidence must still be verified before any buy decision.</p>
+<div id="equityResearchDetail" aria-live="polite"><p class="muted">Select a company from the discovery table or search for a listed symbol first.</p></div>
+</article>
 <article class="panel">
 <small>DATA QUALITY · BUY / NO BUY</small><h2>Research checks by priority</h2>
 <p>Price and a chart cannot justify a BUY. Critical missing checks remain <strong>UNVERIFIED</strong>, never assumed passed.</p>
@@ -45,6 +58,8 @@
 <div><strong>Medium</strong> FII/DII changes and promoter ownership</div></div>
 <div id="researchSources"></div>
 </article>
+</div>
+<div id="equityBacktestPane" class="equity-pane" role="tabpanel" aria-labelledby="equityBacktestTab" hidden>
 <article class="panel">
 <small>HISTORICAL RESEARCH ONLY</small><h2>Equity backtester</h2>
 <p>Upload the individual equity's genuine chronological 5-minute OHLCV CSV (<code>timestamp,open,high,low,close,volume</code>). This is a simulation; it never sends broker orders.</p>
@@ -58,6 +73,7 @@
 </form><div id="equityBacktestResults" aria-live="polite"></div>
 <p><a href="/etf.html">Legacy ETF historical research</a> · The old ETF backtester is accessible here, not in NIFTY or SENSEX trading.</p>
 </article>
+</div>
 </section>
 </main>
 </body></html>
