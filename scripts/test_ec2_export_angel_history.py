@@ -161,6 +161,13 @@ class HistoryExporterTests(unittest.TestCase):
                 mod.collect_history(dt.date(2026,5,20), dt.date(2026,5,20),
                                     '123', {}, pause=0, cache_dir=cache)
 
+    def test_ab1021_is_explained_as_broker_rate_limit(self):
+        import io
+        payload=b'{"status":false,"message":"Too many requests","errorcode":"AB1021","data":null}'
+        with mock.patch.object(mod.urllib.request, 'urlopen', return_value=io.BytesIO(payload)):
+            with self.assertRaisesRegex(mod.DownloadError, 'AB1021 Too many requests'):
+                mod.fetch_batch('123', {}, dt.date(2026,5,20), dt.date(2026,5,20))
+
     def test_rate_limit_403_uses_safe_classification_not_raw_body(self):
         import io
         import urllib.error
