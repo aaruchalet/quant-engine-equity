@@ -47,10 +47,10 @@
         </div>
 
         <div class="section-heading"><span>02</span> Capital &amp; risk</div>
-        <div class="field"><label for="initialCapital">Initial capital <small>₹</small></label><input id="initialCapital" name="initialCapital" type="number" min="1" step="1000" value="100000" required></div>
+        <div class="field"><label for="initialCapital">Initial capital <small>₹</small></label><input id="initialCapital" name="initialCapital" type="number" min="1" step="1" value="100000" required></div>
         <div class="form-grid">
-          <div class="field"><label for="riskPercent">Risk / trade <small>%</small></label><input id="riskPercent" name="riskPercent" type="number" min="0.01" max="10" step="0.1" value="1" required></div>
-          <div class="field"><label for="stopLossPercent">Stop loss <small>%</small></label><input id="stopLossPercent" name="stopLossPercent" type="number" min="0.01" max="99" step="0.1" value="0.5" required></div>
+          <div class="field"><label for="riskPercent" title="Percentage of capital risked per trade; not the number of trades or percentage invested">Risk / trade <small>%</small></label><input id="riskPercent" name="riskPercent" type="number" min="0.01" max="10" step="0.01" value="1" required></div>
+          <div class="field"><label for="stopLossPercent">Stop loss <small>%</small></label><input id="stopLossPercent" name="stopLossPercent" type="number" min="0.01" max="99" step="0.01" value="0.5" required></div>
           <div class="field"><label for="targetRiskReward">Target <small>R multiple</small></label><input id="targetRiskReward" name="targetRiskReward" type="number" min="0.1" step="0.1" value="2" required></div>
           <div class="field"><label for="slippageBps">Slippage <small>bps / fill</small></label><input id="slippageBps" name="slippageBps" type="number" min="0" step="0.5" value="2" required></div>
         </div>
@@ -65,7 +65,7 @@
               <div class="field"><label for="maxTradesPerDay">Max trades / day</label><input id="maxTradesPerDay" name="maxTradesPerDay" type="number" min="1" value="5"></div>
               <div class="field"><label for="feeBps">Fee <small>bps / order</small></label><input id="feeBps" name="feeBps" type="number" min="0" step="0.1" value="0"></div>
               <div class="field"><label for="feePerOrder">Fixed fee <small>₹ / order</small></label><input id="feePerOrder" name="feePerOrder" type="number" min="0" step="0.1" value="0"></div>
-              <div class="field"><label for="maxDailyLossPercent">Max daily loss <small>%</small></label><input id="maxDailyLossPercent" name="maxDailyLossPercent" type="number" min="0.1" max="100" step="0.5" value="3"></div>
+              <div class="field"><label for="maxDailyLossPercent">Max daily loss <small>%</small></label><input id="maxDailyLossPercent" name="maxDailyLossPercent" type="number" min="0.1" max="100" step="0.1" value="3"></div>
               <div class="field"><label for="lotSize">Lot size</label><input id="lotSize" name="lotSize" type="number" min="1" value="1"></div>
               <div class="field"><label for="longRsiMin">Long RSI min</label><input id="longRsiMin" name="longRsiMin" type="number" min="0" max="100" step="1" value="55"></div>
               <div class="field"><label for="longRsiMax">Long RSI max</label><input id="longRsiMax" name="longRsiMax" type="number" min="0" max="100" step="1" value="75"></div>
