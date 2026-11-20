@@ -1,5 +1,7 @@
 # quant-engine-test
 
+**EC2-to-Mac NIFTYBEES export:** For a read-only, registered-egress-checked workflow using the existing Quant Engine container and no copied broker credentials, see [EC2 historical export](doc/ec2-historical-export.md). It requires authorized SSH access; GitHub alone cannot connect to a private EC2 host or generate the actual licensed candles.
+
 **Independent EMA(9/20) + Session VWAP(HLC3) + RSI(14) backtesting service.**
 
 Tech stack is intentionally aligned with [`aaruchalet/quant-engine`](https://github.com/aaruchalet/quant-engine) `develop`: Java 21, Gradle Kotlin DSL 9.7.1 wrapper, Spring Boot 4.1.1, and Spring Dependency Management 1.1.7. This standalone service includes only the parent's Spring MVC, Actuator, and corresponding test starters. It does **not** require Postgres, Flyway, Angel One credentials, an exchange connection, or a running parent project.

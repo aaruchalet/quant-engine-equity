@@ -16,5 +16,9 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: gradle
+      - name: Validate isolated EC2 exporter
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_ec2_*.py' -v
+          bash -n scripts/pull-history-from-ec2.sh
       - name: Run tests and build
         run: ./gradlew clean test build --no-daemon
