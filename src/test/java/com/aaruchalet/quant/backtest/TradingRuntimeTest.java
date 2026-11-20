@@ -110,6 +110,44 @@ class TradingRuntimeTest {
             assertEquals(1,broker.orders);
         }
     }
+    @Test void secondSellWaitsForTerminalStopCancellationAndHandlesRacingFill() throws Exception {
+        for (boolean racingFill:List.of(false,true)) {
+            var broker=new Exchange();
+            try (var store=new TradingJournal(dir.resolve(String.valueOf(racingFill)),"LIVE",json)) {
+                var app=runner(Mode.LIVE,store,broker);
+                app.tick(); broker.status="complete"; broker.filled=260; broker.brokerQty=260;
+                app.tick(); assertEquals("STOPLOSS_LIMIT",broker.last.get("ordertype"));
+                broker.bid=n(52); app.tick(); // target requests cancellation
+                assertEquals(2,broker.orders);
+                if (racingFill) {
+                    broker.status="complete"; broker.filled=260; broker.brokerQty=0;
+                }
+                app.tick(); // capture terminal state before a replacement sell
+                assertEquals(2,broker.orders);
+                app.tick();
+                assertEquals(racingFill ? 2 : 3,broker.orders);
+                if (!racingFill) {
+                    assertEquals("LIMIT",broker.last.get("ordertype"));
+                    broker.status="complete"; broker.filled=260; broker.brokerQty=0;
+                    app.tick();
+                }
+                assertEquals(0,store.read().quantity);
+            }
+        }
+    }
+
+    @Test void brokerCashBlocksEntryEvenWhenYamlBudgetWouldFit() throws Exception {
+        var broker=new Exchange() {
+            @Override JsonNode request(String path,Object params) throws Exception {
+                return path.endsWith("getRMS") ? json.valueToTree(Map.of("availablecash","200")) : super.request(path,params);
+            }
+        };
+        try (var store=new TradingJournal(dir,"LIVE",json)) {
+            var app=runner(Mode.LIVE,store,broker); app.tick();
+            assertEquals(0,broker.orders); assertEquals(0,store.read().entries);
+        }
+    }
+
     @Test void resolvesClosestExpiryAndListedStrikeWithPaiseConversion() {
         List<Map<String,String>> rows=new ArrayList<>();
         for (var expiry:List.of("25NOV2026","02DEC2026")) for (var strike:List.of(100,110)) {

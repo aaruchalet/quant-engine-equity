@@ -72,8 +72,10 @@ class SmartMarket {
             var data=json.createArrayNode();
             try (var parser=json.createParser(stream)) {
                 if (parser.nextToken()!=tools.jackson.core.JsonToken.START_ARRAY) throw new IOException("Invalid instrument master");
+                // Each row is one value inside the outer array; the following row is expected.
+                var rowReader=json.readerFor(JsonNode.class).without(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
                 while (parser.nextToken()==tools.jackson.core.JsonToken.START_OBJECT) {
-                    JsonNode row=json.readTree(parser);
+                    JsonNode row=rowReader.readValue(parser);
                     String venue=field(row,"exch_seg"), name=field(row,"name");
                     if (venue.equals("NSE") && (field(row,"symbol").endsWith("-EQ") || field(row,"instrumenttype").equals("AMXIDX"))
                             || venue.equals("BSE") && field(row,"instrumenttype").equals("AMXIDX")
@@ -104,7 +106,9 @@ class SmartMarket {
             if (!exchange.equals(field(row,"exch_seg"))) continue;
             String symbol = field(row,"symbol");
             boolean match = proxy ? symbol.equalsIgnoreCase(wanted + "-EQ")
-                    : field(row,"instrumenttype").equals("AMXIDX") && (symbol.equalsIgnoreCase(wanted)
+                    : field(row,"instrumenttype").equals("AMXIDX") && (field(row,"name").equalsIgnoreCase(index.name())
+                    || symbol.equalsIgnoreCase(nifty ? "Nifty 50" : "SENSEX") || !nifty && symbol.equalsIgnoreCase("BSE SENSEX"))
+                    && (symbol.equalsIgnoreCase(wanted)
                     || index == Index.SENSEX && wanted.equalsIgnoreCase("BSE SENSEX") && symbol.equalsIgnoreCase("SENSEX"));
             if (match) {
                 if (found != null) throw new IllegalStateException("Ambiguous instrument " + wanted);
