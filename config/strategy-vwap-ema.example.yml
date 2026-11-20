@@ -1,4 +1,5 @@
-# REFERENCE ONLY — this file is NOT auto-loaded by either Spring Boot service.
+# PAPER-ONLY V2 defaults imported by quant-engine-test/application.yml when run from project root.
+# Parent quant-engine does NOT import this reference. Changing YAML cannot enable broker orders.
 # Implement a validated versioned config loader before using these values in an engine.
 # Mode LIVE is NOT permission to place orders; quant-engine-test never places orders.
 # A real 15:00 square-off requires real 15:00 opening-price data, not the current CSV.
@@ -30,6 +31,7 @@ trading:
       enabled: false              # true + INTRADAY is invalid
 
   signal:
+    shortsEnabled: true           # research signals only, no broker short execution
     evaluationOrder: [EMA_CROSSOVER, RSI, VWAP_BOUNCE]  # VWAP always LAST
     timeframe: FIVE_MINUTE
     requireAllFilters: true       # mandatory AND gates
@@ -80,4 +82,5 @@ trading:
     closePositionOnDailyLoss: false
 
 logging:
-  level: INFO                     # never log credentials/tokens/private client info
+  level:
+    root: INFO                     # never log credentials/tokens/private client info
