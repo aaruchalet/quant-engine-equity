@@ -15,8 +15,7 @@ import java.time.ZoneId;
 import java.util.Set;
 
 /**
- * Immutable V2 settings read from the external YAML imported by application.yml.
- * This research service must never accept LIVE mode or place broker orders.
+ * Immutable strategy settings shared by the historical and market runners.
  */
 public record VwapEmaV2Config(
         String strategyId, String productType, String orderType, String validity,
@@ -102,8 +101,8 @@ public record VwapEmaV2Config(
                 decimal(e,"trading.fees.sebiTurnoverPercent"), decimal(e,"trading.fees.stampDutyBuyPercent"),
                 decimal(e,"trading.fees.sttSellPercent"), decimal(e,"trading.fees.gstPercent"));
         validateFees(fees);
-        String logLevel=get(e,"logging.level.root");
-        if (!Set.of("TRACE","DEBUG","INFO","WARN","ERROR","FATAL","OFF").contains(logLevel))
+        String logLevel=e.getProperty("logging.level.root");
+        if (logLevel!=null && !Set.of("TRACE","DEBUG","INFO","WARN","ERROR","FATAL","OFF").contains(logLevel))
             throw new IllegalArgumentException("Unsupported root logging level in V2 YAML");
         VwapEmaV2Config c = new VwapEmaV2Config(
                 get(e,"strategyId"),

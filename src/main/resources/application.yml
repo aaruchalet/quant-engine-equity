@@ -38,3 +38,7 @@ trading:
     mac-address: ${ANGEL_ONE_MAC_ADDRESS:}
     exchange: ${ANGEL_ONE_EXCHANGE:NSE}
     symbol-token: ${ANGEL_ONE_SYMBOL_TOKEN:}
+
+logging:
+  level:
+    root: INFO                     # never log credentials/tokens/private client info

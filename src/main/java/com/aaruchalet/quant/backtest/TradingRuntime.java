@@ -79,9 +79,6 @@ class TradingRuntime implements DisposableBean {
         State s=journal.read();
         var now=LocalDateTime.now(clock);
         var date=now.toLocalDate(); var time=now.toLocalTime();
-        if (s.halted != null) { status=s.halted; return; }
-        if (s.day!=null && !s.day.equals(date) && (s.quantity>0 || s.pending!=null))
-            throw new IllegalStateException("Previous session exposure needs broker reconciliation");
         if (time.isBefore(strategy.marketOpen()) || !time.isBefore(strategy.marketClose()) ||
                 date.getDayOfWeek().getValue()>5) {
             status=s.quantity>0 || s.pending!=null ? "Session closed with unresolved exposure" : "Outside trading session"; return;
@@ -93,10 +90,18 @@ class TradingRuntime implements DisposableBean {
             authenticated=date;
         }
         if (!date.equals(s.day)) {
+            if (s.day!=null && (s.quantity>0 || s.pending!=null || s.halted!=null)) {
+                if (mode==Mode.LIVE) {
+                    if (s.contract==null) throw new IllegalStateException("Missing contract for previous exposure");
+                    ensureBrokerQuantity(s.contract,0);
+                }
+                journal.save("Prior session ended with incomplete fill history; daily totals unverified",s);
+            }
             if (mode==Mode.LIVE) for (var row : book())
                 if (field(row,"ordertag").startsWith("qe")) throw new IllegalStateException("Existing strategy orders without matching daily journal");
             s=new State(); s.day=date; s.account=account; journal.save("Session opened",s);
         }
+        if (s.halted!=null) { status=s.halted; return; }
         var slot=now.withSecond(0).withNano(0).withMinute(now.getMinute()/5*5);
         boolean squareOff=!time.isBefore(strategy.squareOff());
         if (s.pending!=null) {
@@ -189,6 +194,8 @@ class TradingRuntime implements DisposableBean {
         var tag="qe"+UUID.randomUUID().toString().replace("-","").substring(0,16);
         s.pending=new Order(action,tag,null,qty,price,trigger,clock.instant());
         if (mode==Mode.PAPER) { finish(s,qty,price,"complete"); return; }
+        if (!account.equalsIgnoreCase(field(market.request("user/v1/getProfile",null),"clientcode")))
+            throw new IllegalStateException("Broker account mismatch at order submission");
         journal.save("Submit intent " + action,s);
         var i=s.contract.instrument();
         var params=new LinkedHashMap<String,String>();
@@ -273,7 +280,7 @@ class TradingRuntime implements DisposableBean {
 
     private void finish(State s,long filled,BigDecimal price,String terminalStatus) throws Exception {
         var p=s.pending;
-        if (filled<0 || filled>p.quantity() || filled>0 && (price.signum()<=0 || p.action()!=Action.BUY && filled>s.quantity)
+        if (filled<0 || filled%s.contract.index().lotSize!=0 || filled>p.quantity() || filled>0 && (price.signum()<=0 || p.action()!=Action.BUY && filled>s.quantity)
                 || "complete".equals(terminalStatus) && filled!=p.quantity())
             throw new IllegalStateException("Inconsistent terminal broker fill");
         if (filled>0) {

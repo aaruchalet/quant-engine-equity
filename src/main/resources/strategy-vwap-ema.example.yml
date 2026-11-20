@@ -84,7 +84,3 @@ trading:
     maximumDailyLossInr: 5000     # realized losses; block new entries
     maximumDailyProfitInr: 10000  # realized profits; block new entries
     closePositionOnDailyLoss: false
-
-logging:
-  level:
-    root: INFO                     # never log credentials/tokens/private client info

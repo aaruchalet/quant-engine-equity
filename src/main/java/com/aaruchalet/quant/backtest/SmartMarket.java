@@ -27,6 +27,9 @@ class SmartMarket {
     final AngelOneHistoricalClient history;
     final JsonMapper json;
     private final long maxAge;
+    private final URI api;
+    private final URI masterUrl;
+    private final Clock clock;
     private LocalDate masterDate;
     private JsonNode master;
     private final Map<String,Long> lastRead = new HashMap<>();
@@ -34,7 +37,13 @@ class SmartMarket {
     private LocalDateTime signalSlot;
 
     SmartMarket(AngelOneHistoricalClient history, JsonMapper json, long maxAge) {
-        this.history = history; this.json = json; this.maxAge = maxAge;
+        this(history,json,maxAge,URI.create("https://apiconnect.angelone.in/rest/secure/angelbroking/"),
+                URI.create(MASTER),Clock.system(AngelOneHistoricalClient.IST));
+    }
+
+    SmartMarket(AngelOneHistoricalClient history, JsonMapper json, long maxAge, URI api, URI masterUrl, Clock clock) {
+        this.history=history; this.json=json; this.maxAge=maxAge;
+        this.api=api; this.masterUrl=masterUrl; this.clock=clock;
     }
 
     JsonNode request(String path, Object body) throws Exception {
@@ -43,7 +52,7 @@ class SmartMarket {
             if (delay>0) java.util.concurrent.TimeUnit.NANOSECONDS.sleep(delay);
             lastRead.put(path,System.nanoTime());
         }
-        var builder = history.authenticated(URI.create("https://apiconnect.angelone.in/rest/secure/angelbroking/" + path));
+        var builder = history.authenticated(api.resolve(path));
         var req = body == null ? builder.GET() : builder.POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body)));
         var resp = http.send(req.build(), HttpResponse.BodyHandlers.ofString());
         if (resp.statusCode() != 200) throw new IOException("SmartAPI " + path + " HTTP " + resp.statusCode());
@@ -56,13 +65,25 @@ class SmartMarket {
 
     void loadMaster(LocalDate date) throws Exception {
         if (date.equals(masterDate)) return;
-        var req = HttpRequest.newBuilder(URI.create(MASTER)).timeout(Duration.ofSeconds(45)).GET().build();
+        var req = HttpRequest.newBuilder(masterUrl).timeout(Duration.ofSeconds(45)).GET().build();
         var response = http.send(req,HttpResponse.BodyHandlers.ofInputStream());
         try (var stream = response.body()) {
             if (response.statusCode() != 200) throw new IOException("Angel One instrument master unavailable");
-            var data = json.readTree(stream);
-            if (!data.isArray() || data.isEmpty()) throw new IOException("Empty Angel One instrument master");
-            master = data; masterDate = date;
+            var data=json.createArrayNode();
+            try (var parser=json.createParser(stream)) {
+                if (parser.nextToken()!=tools.jackson.core.JsonToken.START_ARRAY) throw new IOException("Invalid instrument master");
+                while (parser.nextToken()==tools.jackson.core.JsonToken.START_OBJECT) {
+                    JsonNode row=json.readTree(parser);
+                    String venue=field(row,"exch_seg"), name=field(row,"name");
+                    if (venue.equals("NSE") && (field(row,"symbol").endsWith("-EQ") || field(row,"instrumenttype").equals("AMXIDX"))
+                            || venue.equals("BSE") && field(row,"instrumenttype").equals("AMXIDX")
+                            || field(row,"instrumenttype").equals("OPTIDX") && (name.equals("NIFTY") || name.equals("SENSEX")))
+                        data.add(row);
+                }
+                if (parser.currentToken()!=tools.jackson.core.JsonToken.END_ARRAY || data.isEmpty())
+                    throw new IOException("Incomplete instrument master");
+            }
+            master=data; masterDate=date;
         }
     }
 
@@ -131,7 +152,7 @@ class SmartMarket {
         for (var row : data.path("fetched")) for (var i : requested) {
             if (!field(row,"exchange").equals(i.exchange) || !field(row,"symbolToken").equals(i.token)) continue;
             var time = LocalDateTime.parse(field(row,"exchFeedTime"),FEED);
-            var age = Duration.between(time,LocalDateTime.now(AngelOneHistoricalClient.IST)).toSeconds();
+            var age = Duration.between(time,LocalDateTime.now(clock)).toSeconds();
             if (age < -1 || age > maxAge) throw new IllegalStateException("Stale market quote: " + i.symbol);
             var buy = row.path("depth").path("buy").path(0);
             var sell = row.path("depth").path("sell").path(0);
