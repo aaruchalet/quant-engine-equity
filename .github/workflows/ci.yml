@@ -21,7 +21,9 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_*.py' -v
           bash -n scripts/pull-history-from-ec2.sh
       - name: Validate dashboard JavaScript
-        run: |\n          node --check src/main/resources/static/dashboard.js\n          node --check src/main/resources/static/workspace.js
+        run: |
+          node --check src/main/resources/static/dashboard.js
+          node --check src/main/resources/static/workspace.js
       - name: Run tests and build
         run: ./gradlew clean test build --no-daemon
       - name: Start the standalone JAR outside the checkout
