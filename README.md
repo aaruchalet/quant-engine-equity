@@ -53,7 +53,7 @@ The UI displays:
 
 The status endpoint `GET /api/backtests/history-status` returns only a file-presence flag, file basename and size; the dashboard does not accept arbitrary server file paths. If the CSV is missing, configure `HISTORY_CSV_PATH` and restart Spring Boot. The UI does not save reports after page reload; use **Export JSON** to retain them.
 
-**Important:** Brokerage/taxes default to zero and slippage defaults to 2 bps. Enter representative costs before treating results as net after-cost estimates. This remains a research-only, locally bound application, not a live-trading interface.
+**Important:** Brokerage/taxes default to zero and slippage defaults to 2 bps. Enter representative costs before treating results as net after-cost estimates. This remains a research-only, locally bound application, not a live-trading interface. The current form runs **V1**; the requested V2 YAML contract below is not yet bound to the Java engine.
 
 ## Run a real six-month backtest
 
@@ -81,7 +81,7 @@ These rows illustrate format; they are **not market observations**. Supply compl
 
 NIFTY 50 **spot index is not a tradable instrument**, and index bar volume is not interchangeable with underlying constituents' or derivative contracts' traded volume. Use an instrument with valid OHLCV, such as a suitable ETF. Backtest assumptions currently model cash/ETF-like sizing, not options premium, futures margin, expiry, or realistic derivative contract rolling.
 
-## Strategy and trade times (IST)
+## Current strategy V1: implemented behavior and trading times (IST)
 
 - Market data collected from **09:15** for session VWAP; EMA/RSI may warm up across prior days.
 - Long setup: EMA9 > EMA20, close > session VWAP, RSI14 between **55 and 75**.
@@ -96,6 +96,26 @@ NIFTY 50 **spot index is not a tradable instrument**, and index bar volume is no
 - Outputs closed-trade equity curve, trades, fees, win rate, P&L, closed-equity drawdown and skipped dates.
 
 All parameter overrides can be sent in the JSON `POST` body. See `BacktestRequest` for names and `StrategyConfig` for validations/defaults. The engine uses local configured CSV paths only; callers cannot read arbitrary server files.
+
+### Requested strategy V2 — configuration specification, NOT YET implemented
+
+The requested next strategy is **VWAP_BOUNCE_EMA_V2**. See [master instructions](doc/instructions-algo-trading.md#3a-new-configurable-vwap-third-bounce--ema-crossover-strategy-requested-2026-11-20) and [reference configuration](config/strategy-vwap-ema.example.yml). The example YAML is **not automatically loaded by Spring Boot**, so editing it alone will **not change the backtest**.
+
+| Parameter | V2 requirement |
+| --- | --- |
+| Long entry | Close and next entry fill **above VWAP**, two earlier valid support bounces and signal on **third bounce**, confirmed same-session EMA **9 crosses above 20**, RSI **>50** |
+| Short entry | Close and next entry fill **below VWAP**, two earlier resistance rejections and signal on **third**, confirmed EMA **9 crosses below 20**, RSI **<50**; real shorting subject to broker/market eligibility |
+| RSI | Filter on, period **14**; RSI exits **off**; short exit above **55** reserved, long exit below **unset** because no threshold was specified |
+| Exits | Stop-loss **enabled, 1.0% of entry price**; take-profit **enabled, 2.0% of entry price**; generic exit on failure of ANY original entry filter **off** |
+| Quantity | Default **1**, maximum **10**, one concurrent position; validate lot size, capital and exposure |
+| Daily limits | Up to **5** trades; realized loss **₹5,000**; realized profit **₹10,000**; block new entries at limits; close existing position on daily-loss limit **false** |
+| Session | **Asia/Kolkata**, VWAP data from market open **09:15**, strategy starts **09:20**, entries start **09:30**, last entry **14:45**, square-off **15:00**, normal equity close **15:30**; all configurable |
+| Carry-over | Configurable, default **false**; overnight + INTRADAY product invalid |
+| Trading / order | **PAPER** by default; optional **LIVE** only in separately authorized parent application; **MARKET**, **INTRADAY**, **DAY** |
+| Logging | **INFO**, redact broker credentials |
+
+**V1 versus V2 distinction:** Your currently running Java dashboard still evaluates the old EMA9/20 + VWAP + RSI55–75 strategy with an early setup-invalidation exit, **0.5% stop**, **2R target** and **14:55** square-off. The existing historical CSV contains bars only through the **14:55 open**. Implement a V2-specific config loader, strategy/bounce state machine, real 15:00 opening-price coverage, 15:00 exit and tests before calling a new run V2. The existing CSV is sufficient to reproduce V1, **not sufficient for a verified V2 15:00 exit without additional price data**. Neither the dashboard nor this project may place live orders.
+
 
 ## Scope and limitations
 
