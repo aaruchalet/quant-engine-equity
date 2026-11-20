@@ -173,20 +173,20 @@
     const root=byId('equityDetail');
     const title=node('h3',quote.company+' · '+quote.symbol);
     root.replaceChildren(title,metricTiles([
-      ['Official NSE quote',rupees(quote.price)],['Change %',quote.changePercent == null?'—':numeric(quote.changePercent)+'%'],
+      ['Official closing price',rupees(quote.price)],['Change %',quote.changePercent == null?'—':numeric(quote.changePercent)+'%'],
       ['Previous close',rupees(quote.previousClose)],['Session high',rupees(quote.dayHigh)],
       ['Session low',rupees(quote.dayLow)],['52-week high',rupees(quote.week52High)],
       ['52-week low',rupees(quote.week52Low)],['Decision','INSUFFICIENT DATA']
-    ]),paragraph('NSE source fetched '+asText(quote.fetchedAt)+' · Exchange timestamp '+asText(quote.marketTimestamp)+
+    ]),paragraph('Official EOD archive fetched '+asText(quote.fetchedAt)+' · Closing session '+asText(quote.marketTimestamp)+
       ' · '+asText(quote.exchange)+' / '+asText(quote.isin)),
-      paragraph('AMFI classification, financial statements, liquidity/depth, surveillance clearance and tradeable setup have not been verified. No BUY recommendation can be issued.'),
+      paragraph('NOT LIVE. AMFI classification, financial statements, liquidity/depth, surveillance clearance and tradeable setup have not been verified. No BUY recommendation can be issued.'),
       externalSymbolLinks(quote.symbol));
   }
   async function showEquity(symbol) {
     if(!/^[A-Z0-9&_.-]{1,25}$/.test(symbol)) return;
     quoteState.symbol=symbol;byId('equityQuery').value=symbol;
     byId('equityDetail').replaceChildren(paragraph('Requesting fresh official NSE data for '+symbol+'…'));
-    try {renderQuote(await fetchJSON('/api/equity/market/quote/'+encodeURIComponent(symbol)+'?ts='+Date.now()));}
+    try {renderQuote(await fetchJSON('/api/equity/eod/'+encodeURIComponent(symbol)+'?ts='+Date.now()));}
     catch(e) {byId('equityDetail').replaceChildren(paragraph('Quote unavailable: '+e.message,'error'));}
   }
   byId('equityLookup').onsubmit=async event=>{
@@ -194,11 +194,11 @@
     const q=byId('equityQuery').value.trim(),out=byId('equityMatches');
     out.replaceChildren(paragraph('Searching NSE…'));
     try {
-      const result=await fetchJSON('/api/equity/market/search?q='+encodeURIComponent(q)+'&ts='+Date.now());
+      const result=await fetchJSON('/api/equity/lookup?q='+encodeURIComponent(q)+'&ts='+Date.now());
       const suggestions=result.suggestions||[];
       out.replaceChildren();
       if(!suggestions.length) {
-        out.append(paragraph('No matching NSE equity symbols returned. You may search by an exact ticker.'));
+        out.append(paragraph('No matching exchange equity symbols returned. You may search by an exact ticker.'));
       } else {
         const list=node('div',null,'search-results');
         for(const s of suggestions){
@@ -210,11 +210,11 @@
       }
       const direct=node('button','Check exact ticker '+q.toUpperCase(),'secondary');
       direct.type='button';direct.onclick=()=>showEquity(q.toUpperCase());out.append(direct);
-    } catch(e) {out.replaceChildren(paragraph('NSE search unavailable: '+e.message,'error'));}
+    } catch(e) {out.replaceChildren(paragraph('Exchange EOD search unavailable: '+e.message,'error'));}
   };
   byId('equityRefresh').onclick=()=>{
     const symbol=quoteState.symbol || byId('equityQuery').value.trim().toUpperCase();
-    if(!symbol) byId('equityDetail').replaceChildren(paragraph('Search for or enter an NSE symbol first.','error'));
+    if(!symbol) byId('equityDetail').replaceChildren(paragraph('Search for or enter an NSE/BSE symbol first.','error'));
     else showEquity(symbol);
   };
   const screenForm=byId('screen');
@@ -222,38 +222,53 @@
     if(!screenForm.reportValidity()) return;
     const f=new FormData(screenForm),min=Number(f.get('minPrice')),max=Number(f.get('maxPrice'));
     const low=Number(f.get('minSessions')),high=Number(f.get('maxSessions'));
+    const capital=f.get('capital')===''?null:Number(f.get('capital'));
     const out=byId('screenResult');
     if(min<=0 || min>=max || low<1 || low>high){
       out.replaceChildren(paragraph('Invalid price band or holding-session range.','error'));return;
     }
-    out.replaceChildren(paragraph('Fetching a fresh NSE Smallcap 250 constituent snapshot…'));
+    out.replaceChildren(paragraph('Refreshing AMFI classification and the latest available official NSE/BSE closing-price archives…'));
     const button=byId('screenAll');
     button.disabled=true;
     try {
-      const url='/api/equity/market/screen?minPrice='+encodeURIComponent(min)+
-        '&maxPrice='+encodeURIComponent(max)+'&ts='+Date.now();
-      const r=await fetchJSON(url);
+      const scan=await fetchJSON('/api/equity/discover',{
+        method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-cache'},
+        body:JSON.stringify({minPrice:min,maxPrice:max,minSessions:low,maxSessions:high,
+          capital,availableCash:null})
+      });
       const summary=metricTiles([
-        ['Constituents with prices',r.constituentsWithPrices],['Matching price band',r.matched],
-        ['Research state','PRELIMINARY'],['AMFI coverage','INCOMPLETE']
+        ['AMFI small-cap universe',scan.smallCaps],['Verified ISIN mappings',scan.mapped],
+        ['In configured price band',scan.priceMatches],
+        ['Above ₹5cr liquidity floor',scan.liquidityPasses],
+        ['Discovery result',scan.outcome],['Qualified BUY signals','NOT EVALUATED']
       ]);
-      const warning=paragraph('As-of NSE '+asText(r.marketTimestamp)+' · fetched '+asText(r.fetchedAt)+
-        ' · Holding period '+low+'–'+high+' exchange sessions. This is a price-filtered NSE index scan, not a complete AMFI small-cap screen. Liquidity, governance, financials and 2:1 net R:R still require verification.','notice');
-      const data=r.stocks||[];
-      const results=dataTable('Matching constituents',
-        ['Symbol','Latest price','Change','Decision'],
-        data.map(s=>[s.symbol,rupees(s.price),
-          s.changePercent==null?'—':numeric(s.changePercent)+'%',s.decision]),
-        'No index members match the selected price range.');
-      const details=node('div',null,'search-results');
-      data.forEach(s=>{
+      const dates=Object.entries(scan.priceDates||{}).map(([market,date])=>market+' '+date).join(' · ');
+      const warning=paragraph('Exchange closing dates: '+(dates||'Unavailable')+' · Retrieved '+asText(scan.retrievedAt)+
+        ' · Holding period: '+low+'–'+high+' trading sessions. This scan checks AMFI, ISIN, prices and 20-session traded value only. Governance, financials, surveillance, volume chart and net R:R have NOT been verified.','notice');
+      const data=Array.isArray(scan.candidates)?scan.candidates:[];
+      const results=dataTable('AMFI-classified small-cap candidates',
+        ['Company','Exchange','Symbol','Official close','Session','20-session turnover (₹cr)','Research state'],
+        data.map(s=>[s.company,s.exchange,s.symbol,rupees(s.close),s.session,
+          s.turnoverCr==null?'UNVERIFIED':numeric(s.turnoverCr),s.decision]),
+        'No complete eligible candidates could be verified.');
+      const inspect=node('div',null,'search-results');
+      for(const s of data.slice(0,100)){
         const b=node('button','Inspect '+s.symbol,'secondary');b.type='button';
         b.onclick=()=>{showEquity(s.symbol);byId('equityQuery').scrollIntoView({behavior:'smooth'});};
-        details.append(b);
-      });
-      out.replaceChildren(summary,warning,results,details);
-    } catch(e) {out.replaceChildren(paragraph('Fresh web scan unavailable: '+e.message+' No cached recommendations will be used.','error'));}
-    finally {button.disabled=false;}
+        inspect.append(b);
+      }
+      const sourceLinks=node('div',null,'source-links');
+      for(const url of [scan.amfiSource,...(scan.exchangeSources||[])]){
+        if(!url || !String(url).startsWith('https://')) continue;
+        const a=node('a','Source');a.href=url;a.target='_blank';a.rel='noopener noreferrer';
+        a.title=url;sourceLinks.append(a);
+      }
+      out.replaceChildren(summary,warning,...(scan.limitations||[]).map(message=>paragraph(message,'notice')),
+        results,inspect,sourceLinks);
+    } catch(e) {
+      out.replaceChildren(paragraph('Fresh AMFI/exchange discovery unavailable: '+e.message+
+        '. No cached or invented stock picks will be substituted.','error'));
+    } finally {button.disabled=false;}
   }
   screenForm.onsubmit=e=>{e.preventDefault();screenAll();};
   byId('screenAll').onclick=screenAll;
