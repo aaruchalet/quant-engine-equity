@@ -19,7 +19,10 @@ trading:
     order-timeout-seconds: 20
     stop-limit-buffer-percent: 1.0
     client-code: ${ANGEL_ONE_CLIENT_CODE:}
+  equity:
+    snapshot-path: ${TRADING_EQUITY_SNAPSHOT_PATH:data/equity/snapshot.json}
   history:
+    options-replay-path: ${TRADING_HISTORY_OPTIONS_REPLAY_PATH:data/options/request.json}
     csv-path: ${HISTORY_CSV_PATH:data/history.csv}
     symbol: ${HISTORY_SYMBOL:NIFTYBEES}
     cache-dir: ${HISTORY_CACHE_DIR:data/cache}
