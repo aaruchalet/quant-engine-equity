@@ -34,6 +34,7 @@ class TradingRuntime implements DisposableBean {
     private Path pauseFile;
     private LocalDate authenticated;
     private LocalDateTime evaluated;
+    private LocalDateTime lastRiskDiagnostic;
     private volatile String status = "Starting";
     private volatile Instant updated;
     private static final org.slf4j.Logger LOG=org.slf4j.LoggerFactory.getLogger(TradingRuntime.class);
@@ -113,7 +114,19 @@ class TradingRuntime implements DisposableBean {
                 || slot.toLocalTime().isAfter(strategy.lastEntry()) || s.entries>=strategy.maxTradesPerDay()
                 || s.pnl.compareTo(BigDecimal.valueOf(-strategy.maxDailyLossInr()))<=0
                 || s.pnl.compareTo(BigDecimal.valueOf(strategy.maxDailyProfitInr()))>=0) {
-            status="No new entries under session/risk rules"; return;
+            status="No new entries under session/risk rules";
+            if (!slot.equals(lastRiskDiagnostic)) {
+                lastRiskDiagnostic=slot;
+                String reason=paused() ? "OPERATOR_PAUSED" : s.entryPaused ? "ENTRY_PAUSED"
+                        : squareOff ? "SQUARE_OFF" : time.isBefore(strategy.entryStart()) ? "BEFORE_ENTRY_START"
+                        : slot.toLocalTime().isAfter(strategy.lastEntry()) ? "AFTER_LAST_ENTRY"
+                        : s.entries>=strategy.maxTradesPerDay() ? "MAX_TRADES_REACHED"
+                        : s.pnl.compareTo(BigDecimal.valueOf(-strategy.maxDailyLossInr()))<=0 ? "DAILY_LOSS_CUTOFF"
+                        : s.pnl.compareTo(BigDecimal.valueOf(strategy.maxDailyProfitInr()))>=0 ? "DAILY_PROFIT_CUTOFF"
+                        : "ENTRY_GATE_BLOCKED";
+                for(Index idx:Index.values()) trace(idx,slot,null,"RISK_GATE",reason);
+            }
+            return;
         }
         if (slot.equals(evaluated) || slot.equals(s.attempted) || Duration.between(slot,now).toSeconds()>entryWindow) return;
         market.loadMaster(date);
@@ -335,8 +348,9 @@ class TradingRuntime implements DisposableBean {
 
     /** Read-only diagnostic events, written after the existing execution decisions; no order side effects. */
     private void trace(Index index,LocalDateTime slot,V2SignalState.Decision d,
-                       String stage,String detail) throws Exception {
+                       String stage,String detail) {
         if (journal==null) return;
+        try {
         var item=new LinkedHashMap<String,Object>();
         item.put("at",clock.instant().toString());
         item.put("candleOpen",slot.minusMinutes(5).toString());
@@ -357,6 +371,10 @@ class TradingRuntime implements DisposableBean {
             item.put("vwapFinalGate",d.entry()!=null);
         }
         journal.trace(index,item);
+        } catch (Exception ex) {
+            // Observability failure must not add a new execution dependency.
+            LOG.warn("Diagnostic storage failed for {}: {}",index,ex.getClass().getSimpleName());
+        }
     }
 
     private boolean paused() { return pauseFile!=null && java.nio.file.Files.exists(pauseFile); }
