@@ -28,6 +28,33 @@ curl http://127.0.0.1:8081/api/backtests/demo
 
 The demo generates six months of **synthetic deterministic candles** to test the runtime, and responds with `SYNTHETIC DEMO ONLY`. **It is not historical NIFTY/ETF performance and must not be used as a trading result.**
 
+## Visual backtest dashboard (no curl required)
+
+A responsive, dependency-free web UI is served directly by this Spring Boot application at **http://127.0.0.1:8081/**. It uses your **local CSV**, never contacts the broker, and does not place orders.
+
+For the previously exported NSE NIFTYBEES dataset on a Mac, run from the project root:
+
+```bash
+git pull origin main
+export HISTORY_SYMBOL=NIFTYBEES
+export HISTORY_CSV_PATH="$PWD/data/niftybees-5min-2026-05-20-to-2026-11-19.csv"
+./gradlew bootRun
+```
+
+Then open **http://127.0.0.1:8081/** in your browser. The page checks the configured local CSV automatically, preselects **2026-05-20 through 2026-11-19**, and provides a **Run historical backtest** button.
+
+The UI displays:
+
+- Net P&L, return, ending capital, win rate, total trades, closed-equity drawdown, profit factor.
+- Closed-trade equity chart (**not intratrade mark-to-market**).
+- Searchable, paginated trade history with entry/exit, quantity, fees, P&L and exit reason.
+- Downloadable JSON report and trades CSV, plus coverage and skipped-session information.
+- Editable capital/risk/EMA/RSI, slippage, fee and optional short-side parameters.
+
+The status endpoint `GET /api/backtests/history-status` returns only a file-presence flag, file basename and size; the dashboard does not accept arbitrary server file paths. If the CSV is missing, configure `HISTORY_CSV_PATH` and restart Spring Boot. The UI does not save reports after page reload; use **Export JSON** to retain them.
+
+**Important:** Brokerage/taxes default to zero and slippage defaults to 2 bps. Enter representative costs before treating results as net after-cost estimates. This remains a research-only, locally bound application, not a live-trading interface.
+
 ## Run a real six-month backtest
 
 A local licensed OHLCV dataset is required; it is not included in source control.
@@ -72,7 +99,7 @@ All parameter overrides can be sent in the JSON `POST` body. See `BacktestReques
 
 ## Scope and limitations
 
-This is research-only with **no broker integration, order execution, database, or frontend**. Run the demo to verify application setup, then provide licensed historical data for real results. Intrabar path is not observable from 5-minute OHLC bars. Closed-equity drawdown can understate intratrade risk. Fee and instrument margin models are simplified; a futures/options backtest requires instrument-specific contract metadata and historical tradable prices. It does not reconcile Indian exchange holidays (missing sessions are skipped and reported), market-data licensing, corporate actions, or source-data accuracy.
+This is research-only with **no live order execution or database**; the included frontend is a local historical-results dashboard. Run the demo to verify application setup, then provide licensed historical data for real results. Intrabar path is not observable from 5-minute OHLC bars. Closed-equity drawdown can understate intratrade risk. Fee and instrument margin models are simplified; a futures/options backtest requires instrument-specific contract metadata and historical tradable prices. It does not reconcile Indian exchange holidays (missing sessions are skipped and reported), market-data licensing, corporate actions, or source-data accuracy.
 
 ## Source layout
 
