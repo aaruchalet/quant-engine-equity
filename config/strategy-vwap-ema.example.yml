@@ -30,6 +30,7 @@ trading:
       enabled: false              # true + INTRADAY is invalid
 
   signal:
+    evaluationOrder: [EMA_CROSSOVER, RSI, VWAP_BOUNCE]  # VWAP always LAST
     timeframe: FIVE_MINUTE
     requireAllFilters: true       # mandatory AND gates
     ema:
@@ -46,11 +47,8 @@ trading:
       recheckSideAtNextOpen: true
       bounce:
         enabled: true
-        priorBouncesRequired: 2
-        triggerBounceNumber: 3
-        touchToleranceBps: 0      # default exact touch; configurable
-        resetOnWrongSideClose: true
-        resetEachSession: true
+        requireWickTouch: true    # ONE completed bar touching VWAP and closing on correct side
+        touchToleranceBps: 0     # no requirement for earlier bounces; VWAP is LAST signal gate
     rsi:
       enabled: true
       period: 14
@@ -64,7 +62,7 @@ trading:
 
   exits:
     exitOnCompositeEntryFilterLoss: false # corrects legacy false "trend reversal"
-    exitOnConfirmedVwapInvalidation: true
+    exitOnConfirmedVwapInvalidation: false # opt-in only; avoid silent composite-filter exits
     exitOnConfirmedEmaReversal: false
 
   risk:
