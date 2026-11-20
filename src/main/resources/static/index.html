@@ -1,10 +1,63 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Quant Engine · Market workspace</title><link rel="stylesheet" href="/workspace.css"><script src="/workspace.js" defer></script></head>
-<body><header><div class="bar"><strong class="brand"><span aria-hidden="true">∿</span> Quant Engine</strong><a href="/etf.html">ETF backtester ↗</a></div></header>
-<nav aria-label="Market workspace"><div class="bar" id="navigation"><a href="#nifty">NIFTY</a><a href="#sensex">SENSEX</a><a href="#trading">Trading</a><a href="#equity">Equity</a></div></nav>
-<main><section id="nifty"></section><section id="sensex" hidden></section>
-<section id="trading" hidden><div class="heading"><div><small>OPERATIONS</small><h1>Trading monitor</h1></div><button id="refresh">Refresh status</button></div><p>Positions, budget and recent activity from the configured trading runtime.</p><div id="runtime" aria-live="polite"></div></section>
-<section id="equity" hidden><small>DELIVERY RESEARCH</small><h1>Equity screener</h1><p>Find Indian small caps using AMFI classification and NSE/BSE closing data.</p>
-<form id="screen"><div class="panel fields"><label>Minimum price (₹)<input name="minPrice" type="number" min=".01" step=".01" value="10" required></label><label>Maximum price, exclusive (₹)<input name="maxPrice" type="number" min=".02" step=".01" value="100" required></label><label>Minimum sessions<input name="minSessions" type="number" min="1" value="20" required></label><label>Maximum sessions<input name="maxSessions" type="number" min="1" value="45" required></label><label>Portfolio capital for sizing (optional, ₹)<input name="capital" type="number" min=".01" step=".01" placeholder="Optional"></label></div>
-<div class="upload"><label>Import research evidence (optional)<input name="file" type="file" accept=".json,application/json"></label><button>Scan equities</button></div></form><div id="screenResult" aria-live="polite"></div></section></main></body></html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quant Engine · Trading workspace</title><link rel="stylesheet" href="/workspace.css">
+<script src="/workspace.js" defer></script></head>
+<body>
+<header><div class="bar"><strong class="brand"><span aria-hidden="true">∿</span> Quant Engine</strong>
+<span class="header-note">Index options · PAPER / LIVE · YAML-controlled execution</span></div></header>
+<nav aria-label="Trading workspace"><div class="bar" id="navigation">
+<a href="#nifty">NIFTY</a><a href="#sensex">SENSEX</a><a href="#equity">Equity</a></div></nav>
+<main>
+<section id="nifty" aria-label="NIFTY trading dashboard"></section>
+<section id="sensex" aria-label="SENSEX trading dashboard" hidden></section>
+<section id="equity" hidden>
+<small>INDIAN STOCK RESEARCH</small><h1>Equity research</h1>
+<p>Research live-source equities from an official exchange feed, investigate a particular symbol and run an independent historical equity simulation. No AI service is required.</p>
+<div class="notice">Public NSE website endpoints may restrict automated calls. Prices are presented with timestamps; an unavailable data source results in an error, never an invented buy signal. Screening NIFTY SMALLCAP 250 is not the full AMFI small-cap universe.</div>
+<article class="panel">
+<div class="heading"><div><small>OFFICIAL NSE MARKET FEED</small><h2>Find an equity</h2></div><button type="button" id="equityRefresh">Refresh selected equity</button></div>
+<form id="equityLookup" class="lookup"><label for="equityQuery">Search company name or NSE symbol</label><div class="inline-controls"><input name="q" id="equityQuery" placeholder="Search e.g. TATA, SBIN, ... " minlength="2" autocomplete="off" required><button type="submit">Search equities</button></div></form>
+<div id="equityMatches" aria-live="polite"></div>
+<div id="equityDetail" aria-live="polite"><p class="muted">Search for a company and choose its NSE ticker to request a fresh quote.</p></div>
+</article>
+<article class="panel">
+<div class="heading"><div><small>PRELIMINARY DISCOVERY</small><h2>Screen all eligible index constituents</h2></div><button type="button" id="screenAll">Refresh web screen</button></div>
+<form id="screen" class="fields">
+<label>Min price (₹)<input name="minPrice" type="number" min=".01" step=".01" value="10" required></label>
+<label>Max price, exclusive (₹)<input name="maxPrice" type="number" min=".02" step=".01" value="100" required></label>
+<label>Holding min (sessions)<input name="minSessions" type="number" min="1" value="20" required></label>
+<label>Holding max (sessions)<input name="maxSessions" type="number" min="1" value="45" required></label>
+<label>Capital, optional (₹)<input name="capital" type="number" min=".01" step=".01" placeholder="Optional"></label>
+<div class="field-action"><button type="submit">Screen using fresh web data</button></div>
+</form>
+<div id="screenResult" aria-live="polite"></div>
+</article>
+<article class="panel">
+<small>DATA QUALITY · BUY / NO BUY</small><h2>Research checks by priority</h2>
+<p>Price and a chart cannot justify a BUY. Critical missing checks remain <strong>UNVERIFIED</strong>, never assumed passed.</p>
+<div class="checklist"><div><strong>Critical</strong> Liquidity, market depth and ability to exit</div>
+<div><strong>Critical</strong> Corporate governance, exchange surveillance</div>
+<div><strong>High</strong> Earnings, operating cash flow and debt</div>
+<div><strong>High</strong> Price trend, volume, EMA/RSI and support levels</div>
+<div><strong>High</strong> Valuation versus peers; upcoming catalysts</div>
+<div><strong>High</strong> Stop loss, net reward-to-risk and time-based exit</div>
+<div><strong>Medium</strong> FII/DII changes and promoter ownership</div></div>
+<div id="researchSources"></div>
+</article>
+<article class="panel">
+<small>HISTORICAL RESEARCH ONLY</small><h2>Equity backtester</h2>
+<p>Upload the individual equity's genuine chronological 5-minute OHLCV CSV (<code>timestamp,open,high,low,close,volume</code>). This is a simulation; it never sends broker orders.</p>
+<form id="equityBacktest" class="fields">
+<label>NSE equity symbol<input name="symbol" placeholder="SBIN" required pattern="[A-Za-z0-9&_.-]{1,25}"></label>
+<label>Start date<input name="from" type="date" required></label>
+<label>End date<input name="through" type="date" required></label>
+<label>Initial capital (₹)<input name="initialCapital" type="number" min="100" step=".01" value="100000" required></label>
+<label>Local historical CSV<input name="file" type="file" accept=".csv,text/csv" required></label>
+<div class="field-action"><button type="submit">Run equity backtest</button></div>
+</form><div id="equityBacktestResults" aria-live="polite"></div>
+<p><a href="/etf.html">Legacy ETF historical research</a> · The old ETF backtester is accessible here, not in NIFTY or SENSEX trading.</p>
+</article>
+</section>
+</main>
+</body></html>
