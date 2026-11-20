@@ -12,4 +12,17 @@ management:
 trading:
   history:
     csv-path: ${HISTORY_CSV_PATH:data/history.csv}
-    symbol: ${HISTORY_SYMBOL:YOUR_TRADABLE_INSTRUMENT}
+    symbol: ${HISTORY_SYMBOL:NIFTYBEES}
+    cache-dir: ${HISTORY_CACHE_DIR:data/cache}
+    cache-max-age-hours: ${HISTORY_CACHE_MAX_AGE_HOURS:24}
+    batch-days: ${HISTORY_BATCH_DAYS:14}
+    access-key: ${BACKTEST_ACCESS_KEY:}
+  angel-one:
+    api-key: ${ANGEL_ONE_API_KEY:}
+    jwt: ${ANGEL_ONE_JWT_TOKEN:}
+    jwt-file: ${ANGEL_ONE_JWT_FILE:}
+    local-ip: ${ANGEL_ONE_CLIENT_LOCAL_IP:}
+    public-ip: ${ANGEL_ONE_CLIENT_PUBLIC_IP:}
+    mac-address: ${ANGEL_ONE_MAC_ADDRESS:}
+    exchange: ${ANGEL_ONE_EXCHANGE:NSE}
+    symbol-token: ${ANGEL_ONE_SYMBOL_TOKEN:}

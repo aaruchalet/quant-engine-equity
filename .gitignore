@@ -9,3 +9,8 @@ out/
 # Licensed historical data is kept local; do not commit vendor-provided data.
 data/*.csv
 !data/*.csv.template
+
+# Vendor-sourced market data and credentials
+data/cache/
+*.env
+.env
