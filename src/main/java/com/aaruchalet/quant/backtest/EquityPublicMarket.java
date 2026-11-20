@@ -77,7 +77,7 @@ class EquityPublicMarket {
     }
 
     private HttpResponse<String> response(String path) throws IOException, InterruptedException {
-        var request=HttpRequest.newBuilder(base.resolve(path))
+        var request=java.net.http.HttpRequest.newBuilder(base.resolve(path))
                 .timeout(Duration.ofSeconds(10))
                 .header("Accept","application/json,text/html;q=0.9")
                 .header("User-Agent","QuantEngineResearch/1.0 (local informational dashboard)")
