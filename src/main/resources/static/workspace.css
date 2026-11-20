@@ -214,3 +214,56 @@ section[hidden] {
     padding-top: 25px;
   }
 }
+
+/* Dedicated index operator pages and on-demand NSE research workspace. */
+.header-note{font-size:13px;color:#c9e2db;text-align:right}
+.mode-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  padding:13px 16px;background:#e6f2ed;border:1px solid #bad6c9;border-radius:9px}
+.mode-row span:not(.state-badge){font-size:13px;color:#425f56}
+.state-badge{padding:3px 10px;border-radius:99px;background:#e1e5e5;color:#374b4a;
+  font:750 12px/1.8 ui-monospace,monospace}
+.state-badge.okay{background:#d5f5e1;color:#056549}
+.state-badge.warn{background:#ffe9d6;color:#8c3c1d}
+.notice{background:#fffaee;border:1px solid #f0dca9;color:#755a20;padding:14px 17px;
+  border-radius:10px;font-size:13px;margin:13px 0 23px}
+.index-view .metrics{grid-template-columns:repeat(auto-fit,minmax(178px,1fr))}
+.index-view .metric{min-width:0;overflow-wrap:anywhere}
+.index-view .metric b{font-size:clamp(16px,2vw,23px);line-height:1.35}
+.index-view .panel{margin-top:18px}
+.table-wrap{overflow:auto;margin:22px 0 4px;max-width:100%}
+.table-wrap table{min-width:620px;font-size:12px}
+.table-wrap th,.table-wrap td{padding:10px 12px;vertical-align:top;max-width:360px;
+  white-space:normal;overflow-wrap:anywhere}
+.table-wrap h3{font-size:14px;color:#345448;margin:12px 0 8px}
+.muted{color:#526566}
+.lookup{margin:14px 0}
+.lookup input,.fields input[type=text],.fields input[type=date],.fields input[type=file]{
+  margin-top:7px;width:100%;border:1px solid #b4c6bf;border-radius:6px;padding:10px;
+  font:inherit;background:#fff}
+.inline-controls{display:flex;gap:10px;margin-top:7px}
+.inline-controls input{flex:1;margin:0;min-width:0}
+.inline-controls button{white-space:nowrap}
+.search-results{display:flex;gap:8px;flex-wrap:wrap;margin:13px 0}
+.secondary{background:#e6f1ea;color:#145548;border:1px solid #bad3c8;
+  font-size:12px;padding:9px 11px}
+.secondary:hover{background:#d5e8da}
+.field-action{align-self:end}
+.field-action button{width:100%}
+.checklist{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));margin:15px 0}
+.checklist div{padding:10px 12px;border:1px solid #e0e9e4;border-radius:7px;font-size:13px}
+.checklist strong{margin-right:10px;color:#1d5e4c}
+.source-links{display:flex;flex-wrap:wrap;gap:9px;margin:16px 0}
+.source-links a{display:inline-block;padding:7px 10px;border-radius:7px;
+  background:#f0f5f2;border:1px solid #dae7df;color:#165b4c;text-decoration:none;
+  font-size:12px;font-weight:650}
+.source-links a:hover{text-decoration:underline}
+#equityDetail,#equityBacktestResults,#screenResult{min-width:0}
+#equityDetail .metrics{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+#equityDetail .metric b{font-size:20px}
+@media(max-width:730px){
+  .header-note{display:none}
+  .inline-controls{flex-direction:column}
+  .index-view .metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .mode-row{align-items:flex-start;flex-direction:column}
+  .checklist{grid-template-columns:1fr}
+}
