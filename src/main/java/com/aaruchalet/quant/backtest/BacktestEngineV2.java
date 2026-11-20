@@ -162,11 +162,11 @@ public final class BacktestEngineV2 {
             boolean shortRsi=cfg.rsiEnabled() && s.rsi()<cfg.shortRsiBelow();
             if (!((longEma && longRsi)||(shortEma && shortRsi))) continue;
             // LAST: VWAP touch/rebound or rejection on THIS completed candle; count NOTHING.
-            double tolerance=s.vwap()*cfg.touchToleranceBps()/10000.0;
-            if (longEma && longRsi && bar.low()<=s.vwap()+tolerance && bar.close()>s.vwap()) {
+            if (longEma && longRsi &&
+                    confirmsFinalVwapBounce(bar, s.vwap(), Side.LONG, cfg.touchToleranceBps())) {
                 pending=new PendingSignal(Side.LONG,s.vwap());
-            } else if (shortEma && shortRsi && bar.high()>=s.vwap()-tolerance
-                    && bar.close()<s.vwap()) {
+            } else if (shortEma && shortRsi &&
+                    confirmsFinalVwapBounce(bar, s.vwap(), Side.SHORT, cfg.touchToleranceBps())) {
                 pending=new PendingSignal(Side.SHORT,s.vwap());
             }
         }
@@ -185,6 +185,20 @@ public final class BacktestEngineV2 {
                 trades.size()-wins,trades.isEmpty()?0:round(100.0*wins/trades.size()),
                 losses==0?null:round(gains/losses),round(maxDrawdown),
                 List.copyOf(trades),List.copyOf(curve));
+    }
+
+    /**
+     * ONE confirmed VWAP touch-and-close is the final signal gate. This function
+     * intentionally has no counter, history or dependency on prior VWAP bounces.
+     */
+    static boolean confirmsFinalVwapBounce(Candle bar, double vwap, Side side,
+                                            double toleranceBps) {
+        if (!Double.isFinite(vwap) || vwap <= 0 || !Double.isFinite(toleranceBps)
+                || toleranceBps < 0) return false;
+        double tolerance = vwap * toleranceBps / 10000.0;
+        return side == Side.LONG
+                ? bar.low() <= vwap + tolerance && bar.close() > vwap
+                : bar.high() >= vwap - tolerance && bar.close() < vwap;
     }
 
     private Position enter(Side side,Candle bar,double equity,StrategyConfig request,VwapEmaV2Config c) {
