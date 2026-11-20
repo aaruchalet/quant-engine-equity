@@ -97,14 +97,14 @@ NIFTY 50 **spot index is not a tradable instrument**, and index bar volume is no
 
 All parameter overrides can be sent in the JSON `POST` body. See `BacktestRequest` for names and `StrategyConfig` for validations/defaults. The engine uses local configured CSV paths only; callers cannot read arbitrary server files.
 
-### Requested strategy V2 — configuration specification, NOT YET implemented
+### Requested strategy V2 — EMA/RSI checked first, VWAP bounce checked LAST
 
 The requested next strategy is **VWAP_BOUNCE_EMA_V2**. See [master instructions](doc/instructions-algo-trading.md#3a-new-configurable-vwap-third-bounce--ema-crossover-strategy-requested-2026-11-20) and [reference configuration](config/strategy-vwap-ema.example.yml). The example YAML is **not automatically loaded by Spring Boot**, so editing it alone will **not change the backtest**.
 
 | Parameter | V2 requirement |
 | --- | --- |
-| Long entry | Close and next entry fill **above VWAP**, two earlier valid support bounces and signal on **third bounce**, confirmed same-session EMA **9 crosses above 20**, RSI **>50** |
-| Short entry | Close and next entry fill **below VWAP**, two earlier resistance rejections and signal on **third**, confirmed EMA **9 crosses below 20**, RSI **<50**; real shorting subject to broker/market eligibility |
+| Long entry | Close and next entry fill **above VWAP**, NO bounce counting; confirmed single VWAP rebound as final gate after same-session EMA **9 crosses above 20**, RSI **>50** |
+| Short entry | Close and next entry fill **below VWAP**, NO bounce counting; confirmed single VWAP rejection as final gate after EMA **9 crosses below 20**, RSI **<50**; real shorting subject to broker/market eligibility |
 | RSI | Filter on, period **14**; RSI exits **off**; short exit above **55** reserved, long exit below **unset** because no threshold was specified |
 | Exits | Stop-loss **enabled, 1.0% of entry price**; take-profit **enabled, 2.0% of entry price**; generic exit on failure of ANY original entry filter **off** |
 | Quantity | Default **1**, maximum **10**, one concurrent position; validate lot size, capital and exposure |
@@ -229,3 +229,8 @@ return HTTP 403 or rate-limit errors even at low request rates. The application
 cannot bypass broker permissions or guarantee six months of vendor retention.
 
 This remains **read-only and research-only**: no live trading or broker order calls.
+
+
+### VWAP bounce clarification (20 Nov 2026)
+
+There is **no first/second/third bounce counter**. Evaluate a confirmed EMA9/20 crossover, RSI(14) >50/<50, time and risk gates **before** the final VWAP price-action check. Long bounce: current completed candle LOW touches VWAP and CLOSE > VWAP; short rejection: HIGH touches VWAP and CLOSE < VWAP. Confirm correct-side price again at next bar OPEN. A single valid bounce suffices. See `doc/instructions-algo-trading.md` and `config/strategy-vwap-ema.example.yml`.
