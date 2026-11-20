@@ -7,6 +7,7 @@ import org.springframework.core.env.PropertyResolver;
 import org.springframework.core.env.PropertySourcesPropertyResolver;
 import org.springframework.core.io.FileSystemResource;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalTime;
 import java.time.ZoneId;
@@ -65,6 +66,7 @@ public record VwapEmaV2Config(
 
     /** Read this strategy's YAML directly; missing files or settings cannot silently use Java defaults. */
     public static VwapEmaV2Config fromYaml(Path path) throws IOException {
+        if (!Files.isRegularFile(path)) throw new IOException("V2 YAML file does not exist: " + path);
         var sources = new YamlPropertySourceLoader().load("v2Strategy", new FileSystemResource(path));
         if (sources.size() != 1 || !(sources.getFirst() instanceof EnumerablePropertySource<?> source))
             throw new IllegalArgumentException("V2 configuration must contain exactly one YAML document");
