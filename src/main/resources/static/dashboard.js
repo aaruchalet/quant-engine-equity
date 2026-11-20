@@ -120,7 +120,7 @@
     if (Number(value) < 0) el.classList.add("negative");
   }
   function formatDatetime(date) {
-    return String(date || "—").replace("T", " · ").replace(/:\d\d$/, "");
+    return String(date || "—").replace("T", " · ").replace(/(\d{2}:\d{2}):\d{2}$/, "$1");
   }
   function formatDate(date) {
     const d = String(date || "").slice(0, 10);
