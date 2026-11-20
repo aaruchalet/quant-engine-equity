@@ -227,6 +227,10 @@ def fetch_batch(token: str, headers: dict[str, str], start: dt.date, through: dt
     if not isinstance(result, dict) or result.get('status') is not True or not isinstance(result.get('data'), list):
         code = str(result.get('errorcode', 'unknown')) if isinstance(result, dict) else 'unknown'
         code = code if re.fullmatch(r'[A-Za-z0-9_-]{1,25}', code) else 'unknown'
+        if code == 'AB1021':
+            raise DownloadError('Broker AB1021 Too many requests: Angel One historical API '
+                                'access-rate restriction. Stop this run; checkpoints are preserved. '
+                                'Contact SmartAPI support if it persists')
         raise DownloadError(f'Broker declined historical request (error code {code})')
     return result['data']
 
