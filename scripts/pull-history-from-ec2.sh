@@ -15,6 +15,14 @@ OUT="${1:-${SCRIPT_DIR}/../data/niftybees-5min-2026-05-20-to-2026-11-19.csv}"
 FROM_DATE="${FROM_DATE:-2026-05-20}"
 THROUGH_DATE="${THROUGH_DATE:-2026-11-19}"
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=12)
+# Optional Mac private-key path; the SSH key stays on the Mac.
+if [[ -n "${EC2_SSH_KEY:-}" ]]; then
+  if [[ ! -f "$EC2_SSH_KEY" ]]; then
+    echo 'EC2_SSH_KEY path does not exist' >&2
+    exit 2
+  fi
+  SSH_OPTS+=(-i "$EC2_SSH_KEY" -o IdentitiesOnly=yes)
+fi
 if [[ ! "$FROM_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ || ! "$THROUGH_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
   echo 'Invalid date format' >&2; exit 2
 fi
