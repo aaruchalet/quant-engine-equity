@@ -1,0 +1,15 @@
+server:
+  port: ${PORT:8081}
+  address: ${HOST:127.0.0.1}
+spring:
+  application:
+    name: quant-engine-test
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+trading:
+  history:
+    csv-path: ${HISTORY_CSV_PATH:data/history.csv}
+    symbol: ${HISTORY_SYMBOL:YOUR_TRADABLE_INSTRUMENT}

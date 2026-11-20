@@ -1,0 +1,11 @@
+.gradle/
+build/
+out/
+.idea/
+*.iml
+.DS_Store
+.env
+*.log
+# Licensed historical data is kept local; do not commit vendor-provided data.
+data/*.csv
+!data/*.csv.template
