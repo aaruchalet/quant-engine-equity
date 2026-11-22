@@ -31,6 +31,7 @@ class CompanyResearchController {
     private final EquityResearchController archive;
     private final EquityDiscovery discovery;
     private final CompanyEvidenceFeed feed;
+    private final PublicCompanyResearch publications;
     private final ExchangeNews news;
     private final ObjectMapper json;
     private final Path directory;
@@ -39,12 +40,13 @@ class CompanyResearchController {
             Thread.ofPlatform().daemon().name("equity-research-updates").factory());
 
     CompanyResearchController(EquityResearchController archive,EquityDiscovery discovery,CompanyEvidenceFeed feed,
-                              ExchangeNews news,ObjectMapper json,
+                              ExchangeNews news,PublicCompanyResearch publications,ObjectMapper json,
                               @Value("${trading.equity.research-directory:data/equity/research}") String directory) {
         this.archive=archive;
         this.discovery=discovery;
         this.feed=feed;
         this.news=news;
+        this.publications=publications;
         this.json=json;
         this.directory=Path.of(directory);
         updates.scheduleWithFixedDelay(this::refreshWatched,30,30,TimeUnit.MINUTES);
@@ -86,20 +88,64 @@ class CompanyResearchController {
         var now=ZonedDateTime.now(CompanyResearch.IST).toOffsetDateTime();
         var selected=listingSnapshot(key,evidence==null ? null : evidence.snapshot(),now,warnings);
         boolean fallback=warnings.contains(CACHE_WARNING);
+        var supplement=market.market==null ? null : publications.load(market.market,now);
+        var allNews=new ArrayList<>(market.news);
+        if(supplement!=null) {
+            warnings.addAll(supplement.warnings());
+            allNews.addAll(supplement.news());
+            allNews.sort(Comparator.comparing(ExchangeNews.Item::publishedAt).reversed());
+        }
+        var inputsSnapshot=enrich(selected,market.market,supplement,now,classification,classificationSource);
         CompanyResearch.Report report;
         try {
-            report=CompanyResearch.evaluate(key.exchange,key.isin,inputs,market.market,selected,classification,
-                    classificationSource,market.news,now,fallback || providerFallback,warnings);
+            report=CompanyResearch.evaluate(key.exchange,key.isin,inputs,market.market,inputsSnapshot,classification,
+                    classificationSource,allNews,now,fallback || providerFallback,warnings);
         } catch(ResponseStatusException | IllegalArgumentException ex) {
             if (selected==null) throw ex;
-            warnings.add("Invalid company evidence in the provider feed. Archive evidence only.");
+            warnings.add("Invalid configured provider evidence. Using public sources.");
             selected=null;
-            report=CompanyResearch.evaluate(key.exchange,key.isin,inputs,market.market,null,classification,
-                    classificationSource,market.news,now,fallback || providerFallback,warnings);
+            inputsSnapshot=enrich(null,market.market,supplement,now,classification,classificationSource);
+            report=CompanyResearch.evaluate(key.exchange,key.isin,inputs,market.market,inputsSnapshot,classification,
+                    classificationSource,allNews,now,fallback || providerFallback,warnings);
         }
         write(directory.resolve(key.exchange+"-"+key.isin).resolve(report.id()+".json"),new Audit(report,selected,evidence==null ? null : evidence.retrievedAt()));
         return report;
     }
+    static EquityScreen.Snapshot enrich(EquityScreen.Snapshot provider,EquityResearchController.Research market,
+                                       PublicCompanyResearch.Data publicData,OffsetDateTime now,String classification,String amfiUrl) {
+        if(market==null || publicData==null) return provider;
+        var original=provider==null?null:provider.stocks().getFirst();
+        var at=provider==null?now:provider.asOf();
+        var facts=new HashMap<>(publicData.facts());
+        var gates=new HashMap<String,Boolean>();
+        if(amfiUrl!=null && !classification.equals("UNVERIFIED")) {
+            gates.put("amfiSmallCap",classification.equals("SMALL CAP"));
+            facts.put("amfi",new EquityScreen.Evidence(amfiUrl,now,"Applicable AMFI workbook checked for this ISIN.",null,null));
+        }
+        if(!market.dailyPrices().isEmpty()) {
+            var close=market.dailyPrices().getLast();
+            facts.put("price",new EquityScreen.Evidence(close.source(),close.session().atTime(15,30).atZone(CompanyResearch.IST).toOffsetDateTime(),
+                    "Official closing price for the selected exchange.",null,null));
+        }
+        var bars=publicData.bars();
+        if(original!=null) {
+            if(original.gates()!=null) gates.putAll(original.gates());
+            if(original.evidence()!=null) facts.putAll(original.evidence());
+            if(original.adjustedDaily()!=null && !original.adjustedDaily().isEmpty()) {
+                bars=original.adjustedDaily();
+                if(original.evidence()==null || !original.evidence().containsKey("adjustedHistory")) facts.remove("adjustedHistory");
+            }
+            else if(!EquityScreen.verified(publicData.facts().get("adjustedHistory"),at)) bars=List.of();
+            // A configured price and its provenance must stay paired.
+            if(original.evidence()==null || !original.evidence().containsKey("price")) facts.remove("price");
+        }
+        facts.entrySet().removeIf(e->!EquityScreen.verified(e.getValue(),at));
+        var stock=new EquityScreen.Stock(market.exchange(),original==null?market.symbol():original.symbol(),market.isin(),
+                original==null?market.company():original.company(),original==null?market.latestClose():original.price(),
+                original==null?market.averageTradedValueCr():original.tradedValue20Cr(),gates,facts,bars,original==null?null:original.plan());
+        return new EquityScreen.Snapshot(at,provider==null?"UNKNOWN":provider.regime(),List.of(stock));
+    }
+
     private EquityScreen.Snapshot listingSnapshot(Listing key, EquityScreen.Snapshot snapshot, OffsetDateTime now,List<String> warnings) {
         try {
             if(snapshot==null) return null;

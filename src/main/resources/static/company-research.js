@@ -5,6 +5,7 @@ function renderCompanyResearch(out,r,candidate,ui) {
   const market=r.market, p=r.tradePlan, config=r.inputs.config;
   const evidence=new Map(r.findings.map(f=>[f.key,f]));
   const val=k=>evidence.get(k)?.evidence.value||'N/A';
+  const dated=k=>evidence.has(k)?val(k)+' · '+(evidence.get(k).evidence.period||evidence.get(k).evidence.asOf.slice(0,10)):'Unavailable';
   const money=v=>v==null?'N/A':rupees(v);
   const number=v=>v==null?'N/A':numeric(v);
   const title=r.company||candidate.company||candidate.symbol;
@@ -24,17 +25,22 @@ function renderCompanyResearch(out,r,candidate,ui) {
     return node('span',label);
   };
   function evidenceTable(title,labels) {
-    const rows=Object.entries(labels).map(([key,label])=>{
+    const entries=Object.entries(labels).filter(([k])=>evidence.has(k));
+    const absent=Object.entries(labels).filter(([k])=>!evidence.has(k)).map(([,label])=>label);
+    const container=node('div');
+    const rows=entries.map(([key,label])=>{
       const f=evidence.get(key),e=f?.evidence;
-      return [label,e?.value||'N/A',e?.previous||'N/A',e?.trend||'N/A',e?.benchmark||'N/A',
+      return [label,e?.value||'N/A',e?.previous||'—',e?.trend||'—',e?.benchmark||'—',
         e?.period||e?.asOf||'N/A',e?(f.current?'':'Stale · ')+e.rationale:'Evidence unavailable',e?'Filing':'—'];
     });
     const table=dataTable(title,['Metric','Latest','Previous','YoY / 3Y','Peer / index','Period','Interpretation','Source'],rows,'');
     table.querySelectorAll('tbody tr').forEach((tr,i)=>{
-      const e=evidence.get(Object.keys(labels)[i])?.evidence;
+      const e=evidence.get(entries[i][0])?.evidence;
       if(e)tr.lastElementChild.replaceChildren(source('View source',e.source));
     });
-    return table;
+    if(entries.length)container.append(table);
+    if(absent.length)container.append(paragraph('Awaiting evidence for '+absent.join(', ')+'.'));
+    return container;
   }
   const top=node('div',null,'company-verdict');
   top.dataset.decision=r.verdict.decision;
@@ -43,8 +49,8 @@ function renderCompanyResearch(out,r,candidate,ui) {
     badge(r.dataStatus));
   const reasons=section('Reasons',list(r.verdict.reasons));
   const snapshot=section('Company snapshot',metricTiles([
-    ['Listing',r.exchange+' · '+r.isin],['AMFI classification',r.classification],['Sector',val('sector')],
-    ['Market capitalisation',val('marketCap')],['Free float',val('freeFloat')],['Official close',money(market?.latestClose)],
+    ['Listing',r.exchange+' · '+r.isin],['AMFI classification',r.classification],[evidence.has('sector')?'Sector':'Business segment',val(evidence.has('sector')?'sector':'businessSegment')],
+    ['Market capitalisation',dated('marketCap')],['Free float',dated('freeFloat')],['Official close',money(market?.latestClose)],
     ['Previous close',money(market?.previousClose)],['Day change',market?.priceChangePercent==null?'N/A':number(market.priceChangePercent)+'%'],
     ['52-week low / high',money(r.chart.levels['52-week low'])+' / '+money(r.chart.levels['52-week high'])],
     ['Evaluated price',money(r.evaluatedPrice)],['Quote time',r.priceAsOf||r.dataAsOf||'N/A'],['Market regime',r.regime]]));
@@ -71,12 +77,13 @@ function renderCompanyResearch(out,r,candidate,ui) {
       paragraph('ATR measures the recent average daily range. A wider range increases stop and gap exposure.'));
   }
   const financial=section('Financial health and valuation',evidenceTable('Results and peer comparisons',{
-    revenueGrowth:'Revenue growth',recurringProfit:'Recurring PAT',quarterProfitGrowth:'Quarterly profit growth',ebitda:'EBITDA',
+    revenue:'Revenue (₹ crore)',netProfit:'Reported profit after tax (₹ crore)',operatingMargin:'Operating margin',netMargin:'Net margin',
+    operatingCash:'Operating cash flow',pe:'Reported P/E',pb:'Reported P/B',revenueGrowth:'Revenue growth',recurringProfit:'Recurring PAT',quarterProfitGrowth:'Quarterly profit growth',ebitda:'EBITDA',
     eps:'EPS',margins:'Operating / net margins',roe:'ROE',roce:'ROCE',debtEquity:'Debt / equity',interestCoverage:'Interest coverage',
     cashFlowOrCapital:'Operating cash flow / regulatory capital',freeCashFlow:'Free cash flow',receivables:'Receivables',dilution:'Dilution',
     peerPE:'P/E',peerPB:'P/B',evEbitda:'EV/EBITDA',priceSales:'Price / sales'}));
   const ownership=section('Shareholding, governance and restrictions',evidenceTable('Ownership and trading checks',{
-    promoterHolding:'Promoter holding',zeroPledge:'Promoter pledge',fii:'FII / FPI',dii:'DII',cleanAudit:'Auditor opinion',
+    promoterHolding:'Promoter holding',zeroPledge:'Promoter pledge',fii:'Foreign institutions',dii:'DII',cleanAudit:'Auditor opinion',
     relatedParty:'Related-party disclosures',surveillance:'ASM / GSM / trade-to-trade / suspension',circuits:'Circuit limits',depth:'Depth / spread'}));
   const news=section('News and upcoming catalysts',evidenceTable('Filed developments',{
     scheduledEvent:'Scheduled event',recentDevelopment:'Recent development',quantifiedDevelopment:'Financial impact',materialAdverseEvent:'Material adverse event'}));
@@ -92,11 +99,16 @@ function renderCompanyResearch(out,r,candidate,ui) {
   for(const item of r.announcements) {
     const row=node('p');row.append(source(item.headline,item.url),node('small',item.publishedAt+' · '+item.assessment+' · '+item.rationale));news.append(row);
   }
-  const score=section('Risk and opportunity score',dataTable(r.score==null?'Overall score unavailable':r.score+' / 100 · '+
+  const score=section('Risk and opportunity score',dataTable(r.score==null?'Partial score · '+Object.values(r.pointsByTest||{}).reduce((a,b)=>a+b,0)+' points earned across '+Object.keys(r.pointsByTest||{}).length+' of 20 assessed tests':r.score+' / 100 · '+
       (r.score>=85?'High-conviction candidate':r.score>=75?'Candidate':r.score>=60?'Watchlist':'Avoid'),
     ['Category','Points','Available','Tests'],r.categories.map(c=>[c.name,c.points??'N/A',c.maximum,c.tests.map(k=>k.replace(/([a-z])([A-Z])/g,'$1 $2')+' '+(r.pointsByTest?.[k]??'N/A')).join(' · ')]),''),
     paragraph(r.exclusions.length?'Hard exclusions':'No confirmed hard exclusion reported. Unverified checks appear below.'));
   if(r.exclusions.length)score.append(list(r.exclusions));
+  const setupMissing=p.entry==null;
+  const priorSupport=r.chart.levels['Prior 20-session support'];
+  const explanation=Number.isFinite(priorSupport) && r.evaluatedPrice!=null && r.evaluatedPrice<priorSupport
+    ? 'The close is below prior 20-session support at '+money(priorSupport)+'. The breakout setup is invalid.'
+    : 'Entry, targets and trade size require a supported setup.';
   const pct=v=>v==null||!p.entry?'N/A':number(100*v/p.entry)+'%';
   const plan=section('Action plan',paragraph(r.verdict.instruction),metricTiles([
     ['Holding window',config.minSessions+'–'+config.maxSessions+' trading sessions'],[r.inputs.positionStatus==='HELD'?'Current plan reference':'Entry zone',r.inputs.positionStatus==='HELD'?money(p.entry):money(p.entryLow)+' – '+money(p.entry)],
@@ -104,7 +116,10 @@ function renderCompanyResearch(out,r,candidate,ui) {
     ['Gross upside / share',money(p.grossGain)+' · '+pct(p.grossGain)],['Net upside / share',money(p.netGain)+' · '+pct(p.netGain)],
     ['Gross downside / share',money(p.grossLoss)+' · '+pct(p.grossLoss)],['Net downside / share',money(p.netLoss)+' · '+pct(p.netLoss)],
     ['Net reward:risk',p.netRewardRisk==null?'N/A':number(p.netRewardRisk)+':1'],['Shares',number(p.units)],['Next review (IST)',r.nextReview]
-  ]),paragraph([p.trigger,p.invalidation,p.timeExit].filter(Boolean).join(' · ')),
+  ].filter(([label])=>label==='Holding window'||label==='Next review (IST)'||
+      (label==='Stop'?p.stop!=null:label==='Shares'?p.units!=null:label.startsWith('Net')?p.netRewardRisk!=null:!setupMissing))),
+    paragraph(setupMissing?explanation:p.netRewardRisk==null?'Net amounts require verified costs and an executable quote.':''),
+    paragraph([p.trigger,p.invalidation,p.timeExit].filter(Boolean).join(' · ')),
     paragraph('Price gaps, circuits and illiquidity can prevent a stop from filling at the displayed price.'));
   const sources=section('Sources and limitations',paragraph('Evaluated '+r.evaluatedAt+' · '+r.chart.basis),
     list([...r.limitations,...r.missingFields]));
@@ -120,7 +135,7 @@ function renderCompanyResearch(out,r,candidate,ui) {
   }
   details.append(citations);sources.append(details);
   const final=section('Final decision · '+r.verdict.decision,paragraph(r.verdict.reasons.join(' ')),paragraph(r.verdict.instruction),
-    paragraph('Entry / Stop / Target 1 / Target 2 · '+[p.entry,p.stop,p.target1,p.target2].map(money).join(' / ')),
+    paragraph(setupMissing?explanation:'Entry / Stop / Target 1 / Target 2 · '+[p.entry,p.stop,p.target1,p.target2].map(money).join(' / ')),
     paragraph('Data confidence '+r.verdict.confidence+' · As of '+(r.dataAsOf||'unavailable')));
   const download=node('button','Export research JSON','secondary');download.type='button';
   download.onclick=()=>{

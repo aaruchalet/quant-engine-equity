@@ -29,7 +29,7 @@ class CompanyResearchControllerTest {
         when(discovery.classification(any())).thenReturn(new EquityDiscovery.Classification(URI.create("https://example.org/amfi"),Map.of(isin,"TEST"),now.toLocalDate()));
         var other=new EquityScreen.Stock("BSE","WRONG",isin,"Other listing",80d,20d,null,null,null,null);
         when(feed.read()).thenReturn(new CompanyEvidenceFeed.Read(new EquityScreen.Snapshot(now.minusSeconds(1),"NEUTRAL",List.of(other)),false,now.toInstant()));
-        var controller=new CompanyResearchController(archive,discovery,feed,news,json,folder.toString());
+        var controller=new CompanyResearchController(archive,discovery,feed,news,mock(PublicCompanyResearch.class),json,folder.toString());
         try {
             var config=new EquityScreen.Config(10,100,20,45,null,null);
             var inputs=new CompanyResearch.Inputs(config,null,null,null,null,null);

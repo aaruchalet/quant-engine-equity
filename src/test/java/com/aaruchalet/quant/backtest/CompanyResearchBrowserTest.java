@@ -29,7 +29,8 @@ class CompanyResearchBrowserTest {
               else if(path.includes('/research?')) {
                 lastReport={...share,id:'test',inputs:JSON.parse(options.body),dataStatus:'PRELIMINARY',dataAsOf:'2026-11-20',
                   verdict:{confidence:'LOW',decision:'WAIT',reasons:['A','B','C'],instruction:'Verify evidence'},
-                  tradePlan:{},findings:[],categories:[],indicators:{},exclusions:[],announcements:[],limitations:[],missingFields:[],
+                  tradePlan:{},findings:[{key:'revenue',current:true,evidence:{value:'1,054.47 cr',period:'Quarter to 2026-09-30',
+                    rationale:'Consolidated quarterly results.',source:'https://example.org/results',asOf:'2026-10-21'}}],categories:[],indicators:{},exclusions:[],announcements:[],limitations:[],missingFields:[],
                   chart:{basis:'Unadjusted',levels:{},daily:[{date:'2026-11-20',close:45,volume:1200}]}};
                 data=lastReport;
               } else data={};
@@ -41,6 +42,7 @@ class CompanyResearchBrowserTest {
                 document.querySelector('#screenAll').click();await tick();
                 document.querySelector('.candidate-row').click();await tick();
                 if(document.querySelector('.company-verdict strong').textContent!=='WAIT')throw Error('Verdict');
+                if(!document.querySelector('.company-section table').textContent.includes('1,054.47 cr'))throw Error('Missing filing value');
                 document.querySelectorAll('.chart-controls button')[2].click();
                 const sel=document.querySelector('[name=positionStatus]');sel.value='HELD';sel.dispatchEvent(new Event('change'));
                 await tick();
