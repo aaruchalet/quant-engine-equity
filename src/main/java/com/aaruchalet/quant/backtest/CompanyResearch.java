@@ -109,7 +109,7 @@ final class CompanyResearch {
                 points = 0;
                 for (String test : category.tests) {
                     boolean supported = FILED_TESTS.contains(test) ? verifiedFinding(findings,test,true)
-                            : snapshotCurrent && (test.endsWith("Turnover") || barsCurrent && adjusted);
+                            : snapshotCurrent && (test.endsWith("Turnover") ? stock.tradedValue20Cr()!=null && !archiveFallback && priceCurrent : barsCurrent && adjusted);
                     if (supported && !result.missing_data().contains(test)) {
                         int earned = result.score_breakdown().getOrDefault(test,0);
                         points += earned;
@@ -122,9 +122,10 @@ final class CompanyResearch {
                 pointsByTest.put("minimumTurnover",points>=5 ? 5 : 0);
                 pointsByTest.put("preferredTurnover",points==10 ? 5 : 0);
             }
+            if(category.tests.stream().noneMatch(pointsByTest::containsKey)) points=null;
             categories.add(new Category(category.name,points,category.maximum,category.tests));
         }
-        Integer score = stock == null || !adjusted || !verifiedFinding(findings,"financials",true) ? null : categories.stream().mapToInt(Category::points).sum();
+        Integer score = pointsByTest.size()!=20 || !verifiedFinding(findings,"financials",true) ? null : pointsByTest.values().stream().mapToInt(Integer::intValue).sum();
         var plan = plan(inputs, stock, result, price, priceCurrent && barsCurrent && !archiveFallback
                 && verifiedFinding(findings,"fees",true) && verifiedFinding(findings,"depth",true));
         if (plan.entry()==null && barsCurrent && !archiveFallback && inputs.positionStatus!=Position.HELD)
@@ -202,7 +203,9 @@ final class CompanyResearch {
             case "price","surveillance","depth","fees","adjustedHistory","marketAndSectorTrend","outperformsSmallcap" -> 4;
             case "amfi" -> 200;
             case "cleanAudit","cashFlowOrCapital" -> 460;
-            case "financials","revenueGrowth","recurringProfit","quarterProfitGrowth","zeroPledge" -> 150;
+            case "revenue","netProfit","eps","operatingMargin","netMargin","ebitda","debtEquity","interestCoverage",
+                 "operatingCash","freeCashFlow","receivables","promoterHolding","fii","dii","businessSegment",
+                 "financials","revenueGrowth","recurringProfit","quarterProfitGrowth","zeroPledge" -> 150;
             case "recentDevelopment","quantifiedDevelopment","scheduledEvent" -> 90;
             default -> 30;
         };

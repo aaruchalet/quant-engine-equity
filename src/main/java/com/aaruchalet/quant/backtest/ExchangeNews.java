@@ -47,13 +47,17 @@ class ExchangeNews {
         }
         var found=new ArrayList<Item>();
         for (var e:feed.entries) {
-            boolean match=company!=null && e.issuer.strip().equalsIgnoreCase(company.strip())
+            boolean match=company!=null && issuerName(e.issuer).equals(issuerName(company))
                     || exchange.equals("BSE") && securityCode!=null && e.issuer.endsWith("("+securityCode+")");
             if (match && !e.date.isAfter(now) && !e.date.isBefore(now.minusDays(90)))
                 found.add(new Item(e.summary.isBlank()?e.issuer:e.summary,e.link,e.date,"NEUTRAL",
                         "Exchange publication verified. Financial impact has not been assessed.",url,feed.fetched.atZone(CompanyResearch.IST).toOffsetDateTime()));
         }
         return found;
+    }
+    private static String issuerName(String name) {
+        return name.strip().toUpperCase(Locale.ROOT).replaceAll("[.,]", "").replaceAll("\\s+", " ")
+                .replaceFirst(" LIMITED$", " LTD");
     }
     static OffsetDateTime parseDate(String value) {
         try {return ZonedDateTime.parse(value,DateTimeFormatter.RFC_1123_DATE_TIME).toOffsetDateTime();}
