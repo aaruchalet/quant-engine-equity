@@ -55,8 +55,9 @@ class HistoricalMarketDataServiceTest {
     void forbidsFuturePeriodsAndArbitraryInstrument(@TempDir Path dir) throws Exception {
         var svc = new HistoricalMarketDataService(clientNotCalled(), dir, "NIFTYBEES", "NSE", "12345",
                 Duration.ofHours(1), 14);
+        var tomorrow = LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).plusDays(1);
         assertThrows(IllegalArgumentException.class, () -> svc.get("NIFTYBEES",
-                LocalDate.parse("2026-11-21"), LocalDate.parse("2026-11-22"), false));
+                tomorrow, tomorrow.plusDays(1), false));
         assertThrows(IllegalArgumentException.class, () -> svc.get("../secret",
                 LocalDate.parse("2026-11-02"), LocalDate.parse("2026-11-03"), false));
     }
