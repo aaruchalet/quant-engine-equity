@@ -39,6 +39,11 @@ public final class AngelOneHistoricalClient {
     public record Credentials(String apiKey, String jwt, String jwtFile,
                               String localIp, String publicIp, String macAddress) {}
 
+    /** Messages identify the failing setting without including its value. */
+    static final class ConfigurationException extends IllegalArgumentException {
+        ConfigurationException(String message) {super(message);}
+    }
+
     public static final class ProviderException extends IOException {
         private final int httpStatus;
         public ProviderException(int httpStatus, String message) {
@@ -79,8 +84,8 @@ public final class AngelOneHistoricalClient {
     public synchronized List<Candle> fetch(String exchange, String symbolToken,
                                            LocalDateTime from, LocalDateTime until) throws IOException {
         if (!exchange.matches("[A-Z]{2,5}") || !symbolToken.matches("[0-9]{1,12}"))
-            throw new IllegalArgumentException("Invalid exchange or Angel One symbol token");
-        if (until.isBefore(from)) throw new IllegalArgumentException("Invalid date range");
+            throw new ConfigurationException("Invalid exchange or Angel One symbol token");
+        if (until.isBefore(from)) throw new ConfigurationException("Invalid date range");
         String requestBody = "{\"exchange\":\"" + exchange + "\",\"symboltoken\":\"" + symbolToken
                 + "\",\"interval\":\"FIVE_MINUTE\",\"fromdate\":\"" + PARAM_TIME.format(from)
                 + "\",\"todate\":\"" + PARAM_TIME.format(until) + "\"}";
@@ -167,22 +172,22 @@ public final class AngelOneHistoricalClient {
         String jwt = credentials.jwt() == null ? "" : credentials.jwt().strip();
         if (jwt.isEmpty() && credentials.jwtFile() != null && !credentials.jwtFile().isBlank()) {
             Path p = Path.of(credentials.jwtFile());
-            if (!Files.isRegularFile(p)) throw new IllegalArgumentException("Configured JWT file does not exist");
+            if (!Files.isRegularFile(p)) throw new ConfigurationException("ANGEL_ONE_JWT_FILE does not point to a regular file");
             try (var lines = Files.lines(p)) { jwt = lines.findFirst().orElse("").strip(); }
         }
         if (jwt.regionMatches(true, 0, "Bearer ", 0, 7)) jwt = jwt.substring(7).strip();
         require(jwt, "ANGEL_ONE_JWT_TOKEN or ANGEL_ONE_JWT_FILE");
         // Header injection prevention; format validation does not establish authentication validity.
         if (!jwt.matches("[A-Za-z0-9_\\-]+\\.[A-Za-z0-9_\\-]+\\.[A-Za-z0-9_\\-]+"))
-            throw new IllegalArgumentException("Invalid JWT format");
+            throw new ConfigurationException("Invalid ANGEL_ONE_JWT_TOKEN or ANGEL_ONE_JWT_FILE token format");
         return jwt;
     }
 
     private static void require(String value, String key) {
         if (value == null || value.isBlank())
-            throw new IllegalArgumentException("Missing required environment setting: " + key);
-        if (value.contains("\r") || value.contains("\n"))
-            throw new IllegalArgumentException("Invalid header configuration: " + key);
+            throw new ConfigurationException("Missing required environment setting: " + key);
+        if (value.chars().anyMatch(c -> c < 32 || c > 126))
+            throw new ConfigurationException("Invalid header configuration: " + key);
     }
 
     private static String safeCode(String code) {
