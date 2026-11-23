@@ -175,20 +175,36 @@ class SmartMarket {
         return row.hasNonNull("price") ? decimal(row,"price") : BigDecimal.ZERO;
     }
 
+    static final class CandleFailure extends IOException {
+        CandleFailure(String message,Exception cause) {super(message,cause);}
+    }
+
+    private List<Candle> candles(Instrument instrument,LocalDateTime start,LocalDateTime end) throws IOException {
+        try {
+            return history.fetch(instrument.exchange,instrument.token,start,end);
+        } catch(AngelOneHistoricalClient.ConfigurationException | AngelOneHistoricalClient.ProviderException e) {
+            throw new CandleFailure(instrument.exchange+" "+instrument.symbol+" · "+e.getMessage(),e);
+        } catch(IOException | IllegalArgumentException e) {
+            throw new CandleFailure(instrument.exchange+" "+instrument.symbol+" · candle request failed ("+
+                    e.getClass().getSimpleName()+"). Check connectivity and the broker settings on the running host.",e);
+        }
+    }
+
     Signal signal(Index index, LocalDateTime slot, IndexOptionsConfig options, VwapEmaV2Config strategy) throws Exception {
         if (!slot.equals(signalSlot)) { signals.clear(); signalSlot=slot; }
         if (signals.containsKey(index)) return signals.get(index);
         var spot = underlying(index,options,false); var etf = underlying(index,options,true);
         var start = slot.toLocalDate().minusDays(7).atTime(strategy.marketOpen());
         var end = slot.minusMinutes(5);
-        var spots = history.fetch(spot.exchange,spot.token,start,end);
-        var proxies = history.fetch(etf.exchange,etf.token,start,end);
+        var spots = candles(spot,start,end);
+        var proxies = candles(etf,start,end);
         var prices = new TreeMap<LocalDateTime,Candle>();
         for (var c : spots) if (prices.put(c.openTime(),c)!=null) throw new IllegalStateException("Duplicate index bar");
         var bars = new TreeMap<LocalDateTime,Candle>();
         for (var c : proxies) if (bars.put(c.openTime(),c)!=null) throw new IllegalStateException("Duplicate ETF bar");
         for (var t=slot.toLocalDate().atTime(strategy.marketOpen()); !t.isAfter(end); t=t.plusMinutes(5))
-            if (!prices.containsKey(t) || !bars.containsKey(t)) throw new IllegalStateException("Incomplete current signal session");
+            if (!prices.containsKey(t) || !bars.containsKey(t)) throw new IllegalStateException(
+                    "Missing completed "+(!prices.containsKey(t)?spot.symbol:etf.symbol)+" candle at "+t+" IST");
         var state = new V2SignalState(strategy);
         Signal latest = null;
         for (var entry : bars.entrySet()) {

@@ -190,7 +190,7 @@ class TradingRuntime implements DisposableBean {
                 trace(idx,slot,sig,"INDICATOR_CHECK",sig.reason(),signal);
             } catch (Exception failure) {
                 trace(idx,slot,null,"DATA_UNAVAILABLE",
-                        "Signal evaluation failed: "+failure.getClass().getSimpleName());
+                        "Signal evaluation failed: "+candleError(failure));
                 throw failure;
             }
             if (sig.entry()==null) continue;
@@ -235,6 +235,12 @@ class TradingRuntime implements DisposableBean {
         evaluated=slot; status="Waiting for next qualifying candle";
     }
 
+    private static String candleError(Exception failure) {
+        if(failure instanceof SmartMarket.CandleFailure || failure instanceof IllegalStateException)
+            return failure.getMessage();
+        return "Unexpected "+failure.getClass().getSimpleName()+" while preparing candle data";
+    }
+
     private void observeBlockedSlot(LocalDate date,LocalDateTime slot,String reason) throws Exception {
         market.loadMaster(date);
         for(Index idx:Index.values()) {
@@ -246,7 +252,7 @@ class TradingRuntime implements DisposableBean {
                 Thread.currentThread().interrupt();
                 throw ex;
             } catch(Exception ex) {
-                trace(idx,slot,null,"DATA_UNAVAILABLE","Candle observation failed: "+ex.getClass().getSimpleName());
+                trace(idx,slot,null,"DATA_UNAVAILABLE","Candle observation failed: "+candleError(ex));
             }
         }
     }

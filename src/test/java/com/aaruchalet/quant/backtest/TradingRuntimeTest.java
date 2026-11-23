@@ -117,6 +117,33 @@ class TradingRuntimeTest {
         }
     }
 
+    @Test void missingCredentialsExplainThe1515ObservationWithoutExposingSecrets() throws Exception {
+        var at1521=Clock.fixed(LocalDate.of(2026,11,23).atTime(15,21,54).atZone(ist).toInstant(),ist);
+        var history=new AngelOneHistoricalClient(json,"secret-key","","","","","");
+        var market=new SmartMarket(history,json,10) {
+            @Override void loadMaster(LocalDate date) {}
+            @Override Instrument underlying(Index index,IndexOptionsConfig config,boolean proxy) {
+                return new Instrument("NSE",proxy?"2":"1",proxy?"ETF":index.name());
+            }
+        };
+        var base=Files.readString(Path.of("src/main/resources/strategy-vwap-ema.example.yml"));
+        var yaml=base.replace("lastEntry: \"14:45\"","lastEntry: \"15:20\"")
+                .replace("squareOff: \"15:00\"","squareOff: \"15:25\"");
+        var adjusted=VwapEmaV2Config.fromYaml(new org.springframework.core.io.ByteArrayResource(
+                yaml.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        try(var store=new TradingJournal(dir,"PAPER",json)) {
+            var engine=new TradingRuntime(Mode.PAPER,cfg,adjusted,store,market,"TEST",45,20,n(1),at1521);
+            engine.paperControl(true);engine.poll();
+            for(var index:Index.values()) {
+                var failure=store.traces(index).stream().filter(e->"DATA_UNAVAILABLE".equals(e.get("stage"))).findFirst().orElseThrow();
+                assertEquals("2026-11-23T15:15",failure.get("candleOpen"));
+                assertTrue(failure.get("detail").toString().contains("NSE "+index+" · Missing required environment setting: ANGEL_ONE_JWT_TOKEN or ANGEL_ONE_JWT_FILE"));
+                assertFalse(failure.toString().contains("secret-key"));
+            }
+            assertEquals(0,store.read().entries);
+        }
+    }
+
     @Test void paperSelectsFourAffordableLotsAndTradesWithoutOrderApi() throws Exception {
         var broker=new Exchange() {
             @Override JsonNode request(String path,Object p) {throw new AssertionError("Paper invoked private order/account API");}
