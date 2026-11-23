@@ -22,7 +22,9 @@ class SmartMarket {
     record Instrument(String exchange, String token, String symbol) {}
     record Contract(Index index, Right right, Instrument instrument, LocalDate expiry, BigDecimal strike, BigDecimal tick) {}
     record Quote(BigDecimal ltp, BigDecimal bid, long bidSize, BigDecimal ask, long askSize, LocalDateTime time) {}
-    record Signal(V2SignalState.Decision decision, double lastProxyClose) {}
+    record Signal(V2SignalState.Decision decision, double lastProxyClose, Candle indexCandle, Candle proxyCandle) {
+        Signal(V2SignalState.Decision decision,double lastProxyClose) {this(decision,lastProxyClose,null,null);}
+    }
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).build();
     final AngelOneHistoricalClient history;
     final JsonMapper json;
@@ -193,7 +195,7 @@ class SmartMarket {
             var t = entry.getKey();
             if (t.toLocalTime().isBefore(strategy.marketOpen()) || t.toLocalTime().isAfter(strategy.squareOff())) continue;
             var price=prices.get(t);
-            if (price != null) latest = new Signal(state.onClose(price,entry.getValue()),entry.getValue().close());
+            if (price != null) latest = new Signal(state.onClose(price,entry.getValue()),entry.getValue().close(),price,entry.getValue());
         }
         if (!bars.containsKey(end) || latest == null) throw new IllegalStateException("Latest closed candle unavailable");
         signals.put(index,latest);

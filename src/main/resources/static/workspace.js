@@ -121,19 +121,45 @@
     const indexSplit=node('div',null,'index-split');
     indexSplit.append(risk,settings);
     const traces=result.evaluations||[];
-    const decisions=dataTable('Live strategy evaluation log · latest first',
-      ['Recorded','Candle (IST)','Stage','EMA9','EMA20','RSI14','VWAP','Cross','Candidate','EMA','RSI','VWAP last','Decision / reason'],
-      traces.map(e=>[
-        e.recorded,e.candleOpen,e.stage,numeric(e.ema9),numeric(e.ema20),numeric(e.rsi14),
-        numeric(e.sessionVwap),e.confirmedCrossover,e.candidate,
-        e.emaGate===undefined?'—':e.emaGate?'PASS':'WAIT',
-        e.rsiGate===undefined?'—':e.rsiGate?'PASS':'WAIT',
-        e.vwapFinalGate===undefined?'—':e.vwapFinalGate?'PASS':'WAIT',
-        e.detail
-      ]),'No signal evaluations yet. They are recorded during market hours when the runner successfully receives completed candles.');
-    const statusText=result.enabled ? 'PAPER uses simulated orders; LIVE uses the broker path. Both use the same EMA → RSI → VWAP sequence and risk checks.'
-      : 'Trading is inactive. In the application YAML, select PAPER or LIVE, restart the server, and complete broker preflight. A web click never enables LIVE.';
-    view.replaceChildren(row,paragraph(statusText),summary,positionPanel,indexSplit,decisions);
+    const log=node('div',null,'engine-log');
+    log.tabIndex=0;
+    log.setAttribute('aria-label',market+' engine activity, latest first');
+    for(const e of traces) {
+      const line=node('article');
+      line.dataset.event=e.at||e.recorded;
+      const time=e.at?new Date(e.at).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour12:false}):e.recorded;
+      line.append(node('strong',(e.at?new Date(e.at).toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'})+' ':'')+time+' IST · '+e.stage),paragraph(e.detail));
+      if(e.candleOpen)line.append(node('small','Candle open (IST) '+e.candleOpen.replace('T',' ')));
+      for(const [name,c] of [['Index',e.indexCandle],['VWAP proxy',e.proxyCandle]]) {
+        if(c)line.append(paragraph(name+' · Open '+numeric(c.open)+' · High '+numeric(c.high)+' · Low '+numeric(c.low)+
+          ' · Close '+numeric(c.close)+' · Volume '+numeric(c.volume)));
+      }
+      if(e.ready!==undefined)line.append(paragraph('Checks · EMA crossover '+(e.emaGate?'pass':'wait')+
+        ' · RSI '+(!e.emaGate?'skipped':e.rsiGate?'pass':'wait')+
+        ' · VWAP side '+(!e.rsiGate?'skipped':e.vwapFinalGate?'pass':'wait')));
+      if(e.ready!==undefined)line.append(paragraph('EMA '+result.strategy.emaFast+' '+numeric(e.ema9)+' / EMA '+result.strategy.emaSlow+
+        ' '+numeric(e.ema20)+' · RSI '+numeric(e.rsi14)+' · VWAP '+numeric(e.sessionVwap)+' · Cross '+asText(e.confirmedCrossover)+
+        ' · Candidate '+asText(e.candidate)+' · '+(e.ready?'Indicators ready':'Warming up')));
+      log.append(line);
+    }
+    if(!traces.length)log.append(paragraph(result.mode==='PAPER'&&!result.paperRunning?
+      'Start paper trading to see session checks and candle evaluations here.':'Waiting for the first engine event.'));
+    const controls=byId('paper-'+marketId);
+    controls.hidden=result.mode!=='PAPER'||!result.enabled;
+    controls.dataset.running=String(Boolean(result.paperRunning));
+    controls.textContent=result.paperRunning?'Pause paper entries':'Start paper trading';
+    const prior=view.querySelector('.engine-log');
+    const offset=prior?.scrollTop||0;
+    const anchor=offset>0 && prior && [...prior.children].find(el=>el.offsetTop+el.offsetHeight>offset);
+    const delta=anchor?offset-anchor.offsetTop:0;
+    const focused=prior && document.activeElement===prior;
+    view.replaceChildren(row,paragraph(result.mode==='PAPER'?'One paper engine monitors NIFTY and SENSEX. Open positions remain managed when entries are paused.':result.status),
+      node('h3','Live engine log'),log,summary,positionPanel,indexSplit);
+    if(anchor){
+      const match=[...log.children].find(el=>el.dataset.event===anchor.dataset.event);
+      log.scrollTop=match?match.offsetTop+delta:offset;
+    }
+    if(focused)log.focus({preventScroll:true});
   }
   const loading={};
   async function refreshIndex(market) {
@@ -146,7 +172,7 @@
       const data=await fetchJSON('/api/trading/indices/'+market);
       renderIndex(market,data);
     } catch(error) {
-      out.replaceChildren(paragraph('Unable to load '+market+' trading runtime: '+error.message,'error'));
+      byId('control-status-'+market.toLowerCase()).textContent='Status update failed · '+error.message;
     } finally {loading[market]=false;button.disabled=false;}
   }
   for(const market of markets) {
@@ -157,10 +183,27 @@
       paragraph('Same strategy and indicator checks in PAPER and LIVE. Only the execution venue differs.'));
     const button=node('button','Refresh '+market+' status');button.id='refresh-'+id;
     button.type='button';button.onclick=()=>refreshIndex(market);
-    header.append(title,button);
+    const actions=node('div',null,'engine-actions');
+    const control=node('button','Start paper trading');
+    control.id='paper-'+id;control.type='button';control.hidden=true;
+    const feedback=node('p');feedback.id='control-status-'+id;feedback.setAttribute('role','status');
+    control.onclick=async()=>{
+      control.disabled=true;
+      const action=control.dataset.running==='true'?'pause':'start';
+      try {
+        const state=await fetchJSON('/api/trading/paper/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+        feedback.textContent=state.status;
+        control.dataset.running=String(state.paperRunning);
+        control.textContent=state.paperRunning?'Pause paper entries':'Start paper trading';
+        await refreshIndex(market);
+      }catch(error){feedback.textContent='Paper control failed · '+error.message;}
+      finally{control.disabled=false;}
+    };
+    actions.append(control,button);
+    header.append(title,actions);
     const out=node('div',null,'index-view');out.id='indexResult-'+id;
     out.append(paragraph('Reading configured strategy and per-index runtime status…'));
-    section.append(header,out);
+    section.append(header,feedback,out);
   }
 
   const quoteState={symbol:null};
@@ -431,5 +474,5 @@
     if(document.hidden)return;
     const id=tabs.find(a=>a.getAttribute('aria-current')==='page')?.hash.slice(1);
     if(id==='nifty'||id==='sensex') refreshIndex(id.toUpperCase());
-  },10000);
+  },3000);
 })();

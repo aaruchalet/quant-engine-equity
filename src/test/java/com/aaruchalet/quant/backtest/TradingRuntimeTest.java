@@ -70,6 +70,53 @@ class TradingRuntimeTest {
         return new TradingRuntime(mode,cfg,strategy,store,broker,"TEST",45,20,n(1),clock);
     }
 
+    @Test void startAndPauseControlTheSharedScheduledPaperLoop() throws Exception {
+        var broker=new Exchange();
+        try (var store=new TradingJournal(dir,"PAPER",json)) {
+            var app=runner(Mode.PAPER,store,broker);
+            app.poll();
+            assertEquals(0,store.read().entries);
+            app.paperControl(true);
+            app.paperControl(true);
+            app.poll();
+            assertEquals(1,store.read().entries);
+            assertEquals(true,app.indexSnapshot(Index.SENSEX).get("paperRunning"));
+            assertTrue(store.traces(Index.NIFTY).stream().anyMatch(e->"INDICATOR_CHECK".equals(e.get("stage"))));
+            app.paperControl(false);
+            broker.bid=n(48);
+            app.poll();
+            app.poll();
+            assertEquals(0,store.read().quantity);
+            assertEquals(1,store.read().entries);
+            assertEquals(0,broker.orders);
+            assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                    ()->runner(Mode.LIVE,store,broker).paperControl(true));
+        }
+    }
+
+    @Test void startAt1507ShowsRealCandleInputsEvenThoughSquareOffBlocksEntry() throws Exception {
+        var at1507=Clock.fixed(LocalDate.of(2026,11,23).atTime(15,7).atZone(ist).toInstant(),ist);
+        var broker=new Exchange() {
+            @Override Signal signal(Index index,LocalDateTime slot,IndexOptionsConfig cfg,VwapEmaV2Config strategy) {
+                var candle=new Candle(slot.minusMinutes(5),100,104,98,101,500);
+                return new Signal(new V2SignalState.Decision(100d,null,null,true,101d,102d,45d,"WAIT_EMA_CROSSOVER"),101,candle,candle);
+            }
+        };
+        try(var store=new TradingJournal(dir,"PAPER",json)) {
+            var engine=new TradingRuntime(Mode.PAPER,cfg,strategy,store,broker,"TEST",45,20,n(1),at1507);
+            engine.paperControl(true);engine.poll();engine.poll();
+            for(var index:Index.values()) {
+                var logs=store.traces(index);
+                var observed=logs.stream().filter(e->"OBSERVATION".equals(e.get("stage"))).toList();
+                assertEquals(1,observed.size());
+                assertEquals("2026-11-23T15:00",observed.getFirst().get("candleOpen"));
+                assertNotNull(observed.getFirst().get("proxyCandle"));
+                assertTrue(observed.getFirst().get("detail").toString().contains("SQUARE_OFF"));
+            }
+            assertEquals(0,store.read().entries);assertEquals(0,broker.orders);
+        }
+    }
+
     @Test void paperSelectsFourAffordableLotsAndTradesWithoutOrderApi() throws Exception {
         var broker=new Exchange() {
             @Override JsonNode request(String path,Object p) {throw new AssertionError("Paper invoked private order/account API");}

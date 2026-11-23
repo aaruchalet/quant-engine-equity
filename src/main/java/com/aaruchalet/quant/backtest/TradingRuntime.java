@@ -32,8 +32,12 @@ class TradingRuntime implements DisposableBean {
     private final Clock clock;
     private boolean preflightOnly;
     private Path pauseFile;
+    private volatile boolean paperRunning;
+    private String lastActivity;
+    private LocalDateTime activitySlot;
     private LocalDate authenticated;
     private LocalDateTime evaluated;
+    private LocalDateTime positionDiagnostic;
     private LocalDateTime lastRiskDiagnostic;
     private volatile String status = "Starting";
     private volatile Instant updated;
@@ -60,29 +64,61 @@ class TradingRuntime implements DisposableBean {
         if (mode == Mode.LIVE && (account == null || account.isBlank())) throw new IllegalArgumentException("LIVE requires ANGEL_ONE_CLIENT_CODE");
         if (entryWindow < 1 || entryWindow >= 300 || timeout < 1 || buffer.signum()<=0 || buffer.compareTo(BigDecimal.valueOf(100))>=0)
             throw new IllegalArgumentException("Invalid trading runtime timing or stop-limit buffer");
+        if (mode == Mode.PAPER) status="Ready to start paper trading";
         if (mode == Mode.BACKTEST) status="Historical simulation";
     }
 
     @Scheduled(fixedDelayString="${trading.runtime.poll-ms}")
-    void poll() {
+    synchronized void poll() {
         if (mode == Mode.BACKTEST || preflightOnly) return;
-        try { tick(); }
+        try {
+            if (mode==Mode.PAPER && !paperRunning) {
+                var state=journal.read();
+                if(state.pending==null && state.quantity==0) return;
+                // Reconcile existing exposure after restart or pause even when new entries are disabled.
+            }
+            tick(mode!=Mode.PAPER || paperRunning);
+        }
         catch (Exception ex) {
             String detail = ex instanceof IllegalStateException || ex instanceof IOException || ex instanceof IllegalArgumentException
                     ? ex.getMessage() : ex.getClass().getSimpleName();
             String message="Runner waiting: " + detail;
             if (!message.equals(status)) LOG.warn("{}",message);
+            activity("RUNNER_ERROR",message);
             status=message;
         } finally { updated=clock.instant(); }
     }
 
-    void tick() throws Exception {
+    synchronized Map<String,Object> paperControl(boolean running) {
+        if(mode!=Mode.PAPER || preflightOnly || journal==null)
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,
+                    "Paper controls require PAPER execution mode");
+        if(paperRunning!=running) {
+            paperRunning=running;
+            status=running?"Paper engine started; waiting for the next poll":"Paper entries paused; existing positions remain managed";
+            activity("PAPER_CONTROL",status);
+        }
+        return Map.of("paperRunning",paperRunning,"status",status);
+    }
+
+    private void activity(String stage,String message) {
+        var now=LocalDateTime.now(clock);
+        var slot=now.withMinute(now.getMinute()/5*5).withSecond(0).withNano(0);
+        if(slot.equals(activitySlot) && message.equals(lastActivity)) return;
+        lastActivity=message;
+        activitySlot=slot;
+        for(Index idx:Index.values()) trace(idx,null,null,stage,message);
+    }
+
+    void tick() throws Exception { tick(true); }
+
+    private void tick(boolean allowEntries) throws Exception {
         State s=journal.read();
         var now=LocalDateTime.now(clock);
         var date=now.toLocalDate(); var time=now.toLocalTime();
         if (time.isBefore(strategy.marketOpen()) || !time.isBefore(strategy.marketClose()) ||
                 date.getDayOfWeek().getValue()>5) {
-            status=s.quantity>0 || s.pending!=null ? "Session closed with unresolved exposure" : "Outside trading session"; return;
+            status=s.quantity>0 || s.pending!=null ? "Session closed with unresolved exposure" : "Outside trading session"; activity("SESSION",status); return;
         }
         if (mode==Mode.LIVE && !date.equals(authenticated)) {
             if (!account.equalsIgnoreCase(field(market.request("user/v1/getProfile",null),"clientcode")))
@@ -102,14 +138,16 @@ class TradingRuntime implements DisposableBean {
                 if (field(row,"ordertag").startsWith("qe")) throw new IllegalStateException("Existing strategy orders without matching daily journal");
             s=new State(); s.day=date; s.account=account; journal.save("Session opened",s);
         }
-        if (s.halted!=null) { status=s.halted; return; }
+        if (s.halted!=null) { status=s.halted; activity("HALTED",status); return; }
         var slot=now.withSecond(0).withNano(0).withMinute(now.getMinute()/5*5);
         boolean squareOff=!time.isBefore(strategy.squareOff());
         if (s.pending!=null) {
-            reconcile(s,squareOff,slot);
+            if(mode==Mode.PAPER) finish(s,s.pending.quantity(),s.pending.price(),"complete");
+            else reconcile(s,squareOff,slot);
             return;
         }
         if (s.quantity>0) { manage(s,squareOff,slot); return; }
+        if(!allowEntries) return;
         if (paused() || s.entryPaused || squareOff || time.isBefore(strategy.entryStart()) || time.isBefore(strategy.strategyStart())
                 || slot.toLocalTime().isAfter(strategy.lastEntry()) || s.entries>=strategy.maxTradesPerDay()
                 || s.pnl.compareTo(BigDecimal.valueOf(-strategy.maxDailyLossInr()))<=0
@@ -125,24 +163,40 @@ class TradingRuntime implements DisposableBean {
                         : s.pnl.compareTo(BigDecimal.valueOf(strategy.maxDailyProfitInr()))>=0 ? "DAILY_PROFIT_CUTOFF"
                         : "ENTRY_GATE_BLOCKED";
                 for(Index idx:Index.values()) trace(idx,slot,null,"RISK_GATE",reason);
+                if(mode==Mode.PAPER && paperRunning && slot.toLocalTime().isAfter(strategy.marketOpen())
+                        && !slot.minusMinutes(5).toLocalTime().isAfter(strategy.squareOff()))
+                    observeBlockedSlot(date,slot,reason);
             }
             return;
         }
-        if (slot.equals(evaluated) || slot.equals(s.attempted) || Duration.between(slot,now).toSeconds()>entryWindow) return;
+        if (slot.equals(evaluated) || slot.equals(s.attempted)) return;
+        if(Duration.between(slot,now).toSeconds()>entryWindow) {
+            status="Waiting for next completed 5-minute candle at "+slot.plusMinutes(5).toLocalTime()+" IST";
+            activity("CANDLE_WAIT",status);
+            if(mode==Mode.PAPER && paperRunning && !slot.equals(lastRiskDiagnostic)) {
+                lastRiskDiagnostic=slot;
+                observeBlockedSlot(date,slot,"ENTRY_TIMING_WINDOW_CLOSED");
+            }
+            return;
+        }
+        activity("INSTRUMENTS","Checking instrument master for "+date);
         market.loadMaster(date);
         for (Index idx : Index.values()) {
             V2SignalState.Decision sig;
             try {
-                sig=market.signal(idx,slot,options,strategy).decision();
+                trace(idx,slot,null,"CANDLE_CHECK","Reading completed index and ETF candles for EMA, RSI and session VWAP");
+                var signal=market.signal(idx,slot,options,strategy);
+                sig=signal.decision();
+                trace(idx,slot,sig,"INDICATOR_CHECK",sig.reason(),signal);
             } catch (Exception failure) {
                 trace(idx,slot,null,"DATA_UNAVAILABLE",
                         "Signal evaluation failed: "+failure.getClass().getSimpleName());
                 throw failure;
             }
-            trace(idx,slot,sig,"INDICATOR_CHECK",sig.reason());
             if (sig.entry()==null) continue;
             Instrument spot=market.underlying(idx,options,false), proxy=market.underlying(idx,options,true);
             var underlying=market.quotes(spot,proxy);
+            trace(idx,slot,sig,"QUOTE_CHECK","Spot "+underlying.get(spot).ltp()+" · ETF "+underlying.get(proxy).ltp()+" · VWAP "+sig.vwap());
             if (!sig.permitsOpen(underlying.get(proxy).ltp().doubleValue())) {
                 trace(idx,slot,sig,"BLOCKED","Fresh ETF quote failed the final VWAP-side recheck");
                 continue;
@@ -165,6 +219,7 @@ class TradingRuntime implements DisposableBean {
                 continue;
             }
             long qty=options.lots(idx,q.ask(),Math.min(q.bidSize(),q.askSize()),available)*idx.lotSize;
+            trace(idx,slot,null,"SIZE_CHECK",contract.instrument().symbol()+" · bid "+q.bid()+" × "+q.bidSize()+" · ask "+q.ask()+" × "+q.askSize()+" · available ₹"+available+" · eligible units "+qty);
             if (qty==0) {
                 trace(idx,slot,sig,"BLOCKED","Daily budget, broker cash, or executable depth cannot fund one lot");
                 continue;
@@ -180,6 +235,22 @@ class TradingRuntime implements DisposableBean {
         evaluated=slot; status="Waiting for next qualifying candle";
     }
 
+    private void observeBlockedSlot(LocalDate date,LocalDateTime slot,String reason) throws Exception {
+        market.loadMaster(date);
+        for(Index idx:Index.values()) {
+            trace(idx,slot,null,"CANDLE_CHECK","Reading completed candles for observation; entry blocked by "+reason);
+            try {
+                var signal=market.signal(idx,slot,options,strategy);
+                trace(idx,slot,signal.decision(),"OBSERVATION",signal.decision().reason()+" · entry blocked by "+reason,signal);
+            } catch(InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw ex;
+            } catch(Exception ex) {
+                trace(idx,slot,null,"DATA_UNAVAILABLE","Candle observation failed: "+ex.getClass().getSimpleName());
+            }
+        }
+    }
+
     private Quote quote(Contract c) throws Exception { return market.quotes(c.instrument()).get(c.instrument()); }
 
     private void manage(State s,boolean squareOff,LocalDateTime slot) throws Exception {
@@ -187,6 +258,10 @@ class TradingRuntime implements DisposableBean {
         try {
             q=quote(s.contract);
             if (q.bid().signum()<=0 || q.bidSize()<=0) throw new IllegalStateException("Held contract has no executable bid");
+            if (!slot.equals(positionDiagnostic)) {
+                trace(s.contract.index(),null,null,"POSITION_CHECK","Bid "+q.bid()+" · stop "+s.stop+" · target "+s.target+" · units "+s.quantity);
+                positionDiagnostic=slot;
+            }
             if (s.exitReason==null) s.exitReason=exitReason(s,q,squareOff,slot);
         } catch (IOException | IllegalStateException unavailable) {
             if (mode!=Mode.LIVE || squareOff || s.exitReason!=null) throw unavailable;
@@ -342,18 +417,25 @@ class TradingRuntime implements DisposableBean {
         Index tradedIndex=s.contract.index();
         if (s.quantity==0) { s.contract=null; s.exitReason=null; }
         s.pending=null; journal.save(event,s);
-        trace(tradedIndex,LocalDateTime.now(clock),null,"ORDER_EVENT",event);
+        trace(tradedIndex,null,null,"ORDER_EVENT",event);
         status=event;
     }
 
     /** Read-only diagnostic events, written after the existing execution decisions; no order side effects. */
     private void trace(Index index,LocalDateTime slot,V2SignalState.Decision d,
                        String stage,String detail) {
+        trace(index,slot,d,stage,detail,null);
+    }
+    private void trace(Index index,LocalDateTime slot,V2SignalState.Decision d,String stage,String detail,Signal signal) {
         if (journal==null) return;
         try {
         var item=new LinkedHashMap<String,Object>();
         item.put("at",clock.instant().toString());
-        item.put("candleOpen",slot.minusMinutes(5).toString());
+        if(slot!=null) item.put("candleOpen",slot.minusMinutes(5).toString());
+        if(signal!=null) {
+            item.put("indexCandle",signal.indexCandle());
+            item.put("proxyCandle",signal.proxyCandle());
+        }
         item.put("stage",stage);
         item.put("detail",detail);
         if (d!=null) {
@@ -410,7 +492,7 @@ class TradingRuntime implements DisposableBean {
 
     Map<String,Object> snapshot() throws Exception {
         var result=new LinkedHashMap<String,Object>();
-        result.put("mode",mode); result.put("status",status); result.put("updated",updated);
+        result.put("mode",mode); result.put("paperRunning",paperRunning); result.put("status",status); result.put("updated",updated);
         result.put("dailyBudget",options.dailyBudget()); result.put("maximumLots",options.maximumLots()==Integer.MAX_VALUE?"APPLICATION":options.maximumLots());
         if (journal!=null) {
             var s=journal.read(); result.put("day",s.day); result.put("spent",s.spent); result.put("quantity",s.quantity);
@@ -423,6 +505,7 @@ class TradingRuntime implements DisposableBean {
     Map<String,Object> indexSnapshot(Index index) throws Exception {
         var result=new LinkedHashMap<String,Object>();
         result.put("index",index.name());
+        result.put("paperRunning",paperRunning);
         result.put("mode",mode.name());
         result.put("enabled",mode!=Mode.BACKTEST && !preflightOnly);
         result.put("status",mode==Mode.BACKTEST?"Trading inactive: set trading.mode to PAPER or LIVE in application.yml":status);
@@ -475,7 +558,7 @@ class TradingRuntime implements DisposableBean {
             gates.put("dailyLossNotReached",state.pnl.compareTo(BigDecimal.valueOf(-strategy.maxDailyLossInr()))>0);
             gates.put("dailyProfitNotReached",state.pnl.compareTo(BigDecimal.valueOf(strategy.maxDailyProfitInr()))<0);
             gates.put("sharedPositionAvailable",state.quantity==0 && state.pending==null);
-            gates.put("entriesNotPaused",!paused() && !state.entryPaused && state.halted==null);
+            gates.put("entriesNotPaused",(mode!=Mode.PAPER || paperRunning) && !paused() && !state.entryPaused && state.halted==null);
             result.put("riskChecks",gates);
             result.put("evaluations",journal.traces(index));
         } else {
@@ -491,6 +574,10 @@ class TradingRuntime implements DisposableBean {
 class RuntimeStatusController {
     private final TradingRuntime runtime;
     RuntimeStatusController(TradingRuntime runtime) { this.runtime=runtime; }
+    @PostMapping(path="/api/trading/paper/start", consumes="application/json")
+    Map<String,Object> startPaper() {return runtime.paperControl(true);}
+    @PostMapping(path="/api/trading/paper/pause", consumes="application/json")
+    Map<String,Object> pausePaper() {return runtime.paperControl(false);}
     @GetMapping("/api/trading/status")
     Map<String,Object> status() throws Exception { return runtime.snapshot(); }
     @GetMapping("/api/trading/indices/{index}")

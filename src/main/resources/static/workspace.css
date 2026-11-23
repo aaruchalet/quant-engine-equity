@@ -342,3 +342,10 @@ main{padding-top:24px;padding-bottom:38px}
 .chart-controls,.chart-legend {display:flex;gap:.5rem;flex-wrap:wrap}.chart-controls [aria-pressed="true"] {background:#165969;color:white}
 .chart-legend {font-size:.8rem;font-weight:bold}.price-study output {font-variant-numeric:tabular-nums}
 .price-study canvas {height:auto}.company-section .table-wrap {max-width:100%;overflow-x:auto}
+
+.engine-actions { display:flex; flex-wrap:wrap; gap:.6rem }
+.engine-log { position:relative; overflow:auto; max-height:21rem; min-height:4rem; border:1px solid #b9c9c6; border-radius:.5rem; background:white; }
+.engine-log article,.engine-log>p { padding:.55rem .85rem; }
+.engine-log article + article { border-top:1px solid #dae4e2; }
+.engine-log article p { margin:.15rem 0; }
+.engine-log article small { color:#516660; }
