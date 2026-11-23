@@ -59,6 +59,8 @@ export TRADING_STATE_DIRECTORY="$HOME/.local/state/quant-engine-test"
 java -jar build/libs/quant-engine-test-0.0.1-SNAPSHOT.jar --spring.config.import="$CREDENTIALS"
 ```
 
+In PAPER mode, open the NIFTY or SENSEX tab and choose **Start paper trading**. Both tabs control one server-side runner. It continues after the browser closes. **Pause paper entries** suspends new entries while open positions continue through their exit checks. After a server restart, press Start again for new entries. The scrollable live log shows IST timestamps, completed index and ETF candles, EMA/RSI/VWAP values, risk decisions and simulated fills. Outside the market session it records the waiting reason.
+
 Open the dashboard at `http://127.0.0.1:8081/` or read `GET /api/trading/status` for the mode, last runner outcome, journaled quantity, spend, pending order, stop/target and recent events. On EC2, open an SSH tunnel from your Mac (`ssh -L 8081:127.0.0.1:8081 <your-authorized-host>`). Do not expose the local dashboard publicly. To select live execution, set `trading.mode: LIVE` in the external YAML and start the JAR on the registered host. Keep the same state directory across process restarts. Paper and live have distinct ledger files.
 
 ## Signals, stops and recovery
